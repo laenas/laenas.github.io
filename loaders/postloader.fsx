@@ -23,6 +23,8 @@ let markdownPipeline =
     MarkdownPipelineBuilder()
         .UsePipeTables()
         .UseGridTables()
+        .UseAutoIdentifiers()
+        .UseAutoLinks()
         .Build()
 
 let isSeparator (input : string) =

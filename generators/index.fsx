@@ -27,7 +27,7 @@ let generate' (ctx : SiteContents) (_: string) =
     ]
     div [Class "container"] [
       section [Class "articles"] [
-        div [Class "column is-8 is-offset-2"] psts
+        div [Class "column is-10 is-offset-1"] psts
       ]
     ]]
 

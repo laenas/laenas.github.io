@@ -1,7 +1,6 @@
 #r "../_lib/Fornax.Core.dll"
 #if !FORNAX
 #load "../loaders/postloader.fsx"
-#load "../loaders/pageloader.fsx"
 #load "../loaders/globalloader.fsx"
 #endif
 
@@ -31,20 +30,12 @@ let injectWebsocketCode (webpage:string) =
     webpage.Insert ( (index + head.Length + 1),websocketScript)
 
 let layout (ctx : SiteContents) active bodyCnt =
-    let pages = ctx.TryGetValues<Pageloader.Page> () |> Option.defaultValue Seq.empty
     let siteInfo = ctx.TryGetValue<Globalloader.SiteInfo> ()
     let ttl =
       siteInfo
       |> Option.map (fun si -> si.title)
       |> Option.defaultValue ""
-
-    let menuEntries =
-      pages
-      |> Seq.map (fun p ->
-        let cls = if p.title = active then "navbar-item is-active" else "navbar-item"
-        a [Class cls; Href p.link] [!! p.title ])
-      |> Seq.toList
-
+      
     html [] [
         head [] [
             meta [CharSet "utf-8"]
@@ -54,25 +45,13 @@ let layout (ctx : SiteContents) active bodyCnt =
             link [Rel "stylesheet"; Href "https://maxcdn.bootstrapcdn.com/font-awesome/4.7.0/css/font-awesome.min.css"]
             link [Rel "stylesheet"; Href "https://fonts.googleapis.com/css?family=Open+Sans"]
             link [Rel "stylesheet"; Href "https://unpkg.com/bulma@0.8.0/css/bulma.min.css"]
+            link [Rel "stylesheet"; Href "https://unpkg.com/bulma-prefers-dark"]
+            link [Rel "stylesheet"; Href "/style/vs2015.css"]
             link [Rel "stylesheet"; Type "text/css"; Href "/style/style.css"]
-
+            script [Src "/js/highlight.pack.js"] []
+            script [Type "text/javascript"] [!! "hljs.initHighlightingOnLoad();"]
         ]
-        body [] [
-          nav [Class "navbar"] [
-            div [Class "container"] [
-              div [Class "navbar-brand"] [
-                a [Class "navbar-item"; Href "/"] [
-                  img [Src "/images/bulma.png"; Alt "Logo"]
-                ]
-                span [Class "navbar-burger burger"; Custom ("data-target", "navbarMenu")] [
-                  span [] []
-                  span [] []
-                  span [] []
-                ]
-              ]
-              div [Id "navbarMenu"; Class "navbar-menu"] menuEntries
-            ]
-          ]
+        body [] [          
           yield! bodyCnt
         ]
     ]

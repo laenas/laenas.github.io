@@ -62,16 +62,16 @@ Here's what you need to know:
 
 1. Lists in F# generally use the `[element]` notation instead of arrays.
 2. Lists, just like arrays, separate elements with semicolons instead of commas: `[elementA;elementB]`
-3. F# Lists are implemeneted as singly-linked lists - which means that appending individual elements is at the front of the list with the `@` operator:
+3. F# Lists are implemeneted as singly-linked lists - which means that appending individual elements is at the front of the list with the `::` operator:
 ```fs
 let myList = [1;2;3]
-4 @ myList //[4;1;2;3]
+4 :: myList //[4;1;2;3]
 ``` 
-5. If we need to append at the end, we can use the `::` operator to join two lists:
+5. If we need to append at the end, we can use the `@ operator to join two lists:
 ```fs
 let listA = [1;2]
 let listB = [3;4]
-listA :: listB //[1;2;3;4]
+listA @ listB //[1;2;3;4]
 ```
 
 ### Something like `Dictionary<TKey,TValue>`

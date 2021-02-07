@@ -30,8 +30,7 @@ let generate' (ctx : SiteContents) (page: string) =
             ]
         ]
     )
-    |> Option.defaultValue (div [] [])
-    
+    |> Option.defaultValue (div [] [])    
 
 let generate (ctx : SiteContents) (projectRoot: string) (page: string) =
     generate' ctx page

@@ -31,10 +31,11 @@ let injectWebsocketCode (webpage:string) =
 
 let layout (ctx : SiteContents) active bodyCnt =
     let siteInfo = ctx.TryGetValue<Globalloader.SiteInfo> ()
-    let ttl =
+    let ttl = 
       siteInfo
-      |> Option.map (fun si -> si.title)
+      |> Option.map (fun s -> sprintf " - %s" s.title)
       |> Option.defaultValue ""
+      |> sprintf "%s%s" active
       
     html [] [
         head [] [
@@ -57,7 +58,11 @@ let layout (ctx : SiteContents) active bodyCnt =
     ]
 
 let render (ctx : SiteContents) cnt =
-  let disableLiveRefresh = ctx.TryGetValue<Postloader.PostConfig> () |> Option.map (fun n -> n.disableLiveRefresh) |> Option.defaultValue false
+  let disableLiveRefresh = 
+      ctx.TryGetValue<Postloader.PostConfig> () 
+      |> Option.map (fun n -> n.disableLiveRefresh) 
+      |> Option.defaultValue false
+      
   cnt
   |> HtmlElement.ToString
   |> fun n -> if disableLiveRefresh then n else injectWebsocketCode n

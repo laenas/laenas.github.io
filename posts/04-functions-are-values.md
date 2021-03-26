@@ -158,7 +158,7 @@ So we take our list of options.  We transform each one into a function that upda
 
 When people say that F# is a terse language, and packs a lot of power per LOC relative to C#, this is the sort of thing that seems to be the case.  Yes - C# is shorter and nicer when we compare direct, naive solutions - but when you lean into the power of the language, F# starts to be shorter, more expressive, and still somehow more typesafe - the union means we know that all config options get checked, and not needing to do an equivalent of `tryFind` to figure out if an option exists means we can just directly map whatever we do have and work with it.  And while you can achieve a similar behavior in C# with `Func<TConfig,TConfig>` and LINQ's `Aggregate`, both of those will result in much less comprehensible code - to say nothing about the trouble in trying to model the options themselves without a union.
 
-##In summary
+## In summary
 
 Functions are values and behave similarly to all other values we use in the language.
 The left hand side of a `let` is a name (and some parameter names, for functions) - and the right hand side is the value (and what we do with those params, for functions)

@@ -1,0 +1,175 @@
+<html>
+  <head>
+    <meta charSet="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <title>
+      Reasoning about Signatures - Arrows born in flight
+    </title>
+    <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon.png"/>
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/font-awesome/4.7.0/css/font-awesome.min.css"/>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Open+Sans"/>
+    <link rel="stylesheet" href="https://unpkg.com/bulma@0.8.0/css/bulma.min.css"/>
+    <link rel="stylesheet" href="https://unpkg.com/bulma-prefers-dark"/>
+    <link rel="stylesheet" href="/style/vs2015.css"/>
+    <link rel="stylesheet" type="text/css" href="/style/style.css"/>
+    <script src="/js/highlight.pack.js"></script>
+    <script type="text/javascript">
+      hljs.initHighlightingOnLoad();
+    </script>
+  </head>
+  <body>
+    <section class="hero is-info is-medium is-bold">
+      <div class="hero-body">
+        <div class="container has-text-centered">
+          <h1 class="title">
+            Musings on code
+          </h1>
+        </div>
+      </div>
+    </section>
+    <div class="container">
+      <section class="articles">
+        <div class="column is-10 is-offset-1">
+          <div class="card article">
+            <div class="card-content">
+              <div class="media-content has-text-centered">
+                <p class="title article-title">
+                  <a href="/posts/03-signatures.html">
+                    Reasoning about Signatures
+                  </a>
+                </p>
+                <p class="subtitle is-6 article-subtitle">
+                  <a href="#">
+                    @laenas
+                  </a>
+                  on 2021-03-07
+                </p>
+              </div>
+              <div class="content article-body">
+                <h2 id="i-promise-not-to-talk-about-lego">I promise not to talk about LEGO</h2>
+<p>We've all heard that one before, and I think people might be getting a little tired of it.  (Even if it's a good metaphor)
+But it's undeniable that, in the world of F# (and from my perusing, statically-typed functional programming as a whole), the signatures of things are given an markedly more central role.  Immensely moreso than in our sibling language C#, to use the reliable old point of comparison.  I've reflected upon this a fair bit, recently, and come to the conclusion that it boils down to two primary differences:<br />
+First, foremost, we can actually express them without the patience of a monk and the memory of a pub quiz champion.  Consider the differences between these two equivalent things (and don't worry too much about making sense of either, we'll get there later, this is just a run-on sentence in a run-on introduction):</p>
+<pre><code class="language-fs">('a -&gt; 'b -&gt; 'a) -&gt; 'a -&gt; seq&lt;'b&gt; -&gt; 'a
+</code></pre>
+<pre><code class="language-cs">TAccumulate Aggregate&lt;TSource,TAccumulate&gt; (this System.Collections.Generic.IEnumerable&lt;TSource&gt; source, TAccumulate seed, Func&lt;TAccumulate,TSource,TAccumulate&gt; func)
+</code></pre>
+<p>Second, there's a much stronger compositional inertia in a language like F#; and part of that composition is being able to quickly and easily understand how pieces fit together.  There's a reason why tooling like <a href="https://ionide.io/">Ionide</a> adds signature hints liberally, and FSI prints them for all bindings.</p>
+<p>So let's walk through this together, starting simple, and working upwards.  And each step of the way, let's consider how to reason about what we're doing in a way that will develop our intuition about how to work with unfamiliar code and libraries.</p>
+<h2 id="no-no-not-the-t-word-i-thought-we-werent-going-to-talk-about-the-t-word">No, no, not the T word, I thought we weren't going to talk about the T word</h2>
+<p><em><strong>Types.</strong></em>  Whoo, been holding that in for the entire introduction.<br />
+When we talk about <em>signatures</em>  what we're talking about is <em>types</em> - or, more clearly, a specific <em>subset</em> of types.  The types of functions.  But before I get there, I want to start from the ground up, to make sure we're really clear about the distinction between a <em>Type</em>  and a <em>Value</em> - because that's going to be important to understand before moving on.</p>
+<pre><code class="language-fs">let ten = 10
+</code></pre>
+<p>We have three elements in this snippet:</p>
+<ul>
+<li>A binding name: <code>ten</code></li>
+<li>A value: <code>10</code></li>
+<li>The type of that value, and thereby, of <code>ten</code>:  <code>int</code></li>
+</ul>
+<p>We can phrase this more conversationally as:  <code>ten</code> is an <code>int</code> with a value of <code>10</code>.
+<code>&quot;hello&quot;</code> is a <code>string</code> - <code>'x'</code> is a <code>char</code> - <code>(1,2)</code> is a <code>int * int</code> and <code>()</code> is <code>unit</code></p>
+<p>That last point is one to linger on for just a moment:
+<code>()</code> is a <em>value</em> of the type <code>unit</code> - a type that has only that one value.  There are no magic <code>void</code>s in the F# type system, everything has a clearly defined type and value.</p>
+<p>This rule has two implications, beyond the simple values above, which I suspect everyone can reason easily about.</p>
+<p>The first is with regards to generics:</p>
+<pre><code class="language-fs">let abc = ['a';'b';'c']
+</code></pre>
+<p><code>abc</code> is a <code>char list</code> - or put another way - a <code>List&lt;char&gt;</code> and the type parameter there is important.  Because you can also have <code>List&lt;int&gt;</code> or <code>List&lt;string&gt;</code> - but they all behave the same, they are all, fundamentally, a list.  Or, to wit, <code>'a list</code>.  Because in F# we denote type parameters for our generic types as <code>'a</code> and <code>'b</code> and <code>'anyNameReally</code> and so forth.  It just needs to start with that tick.</p>
+<p>The second is with regards to functions:</p>
+<pre><code class="language-fs">let addOne i = i + 1
+</code></pre>
+<p><code>addOne</code> is a <code>int -&gt; int</code>.  The <code>-&gt;</code> notation in F# indicates a function.  The final type in the signature is the output type of the function, the rest are the parameters that are sent as input to the function.  So in this case, exactly as we see in the code - we want one input (an <code>int</code>) and from that the function will produce an output (an <code>int</code>).</p>
+<h2 id="thinking-our-way-through-the-basics">Thinking our way through the basics</h2>
+<p>So we have looked at simple values.  They have types.  Probably not much confusion there.
+And when dealing with generic types, like <code>list</code>, we can have types that generically operate on other types, their values dependent on that other type.
+And with functions, they have types - signatures - also.</p>
+<p>But stop and read that through again.  There's a logical association at play.<br />
+Values have types.  <code>2</code> is an <code>int</code>
+Generic values have types.  <code>[|1;2;3|]</code> is an <code>int array</code>
+And functions have types.  But where did the <em>value</em>  in that statement go?  What is the <em>value</em> of a function?</p>
+<p>It's not its output.  Its not its binding name.  It is <em><strong>the function itself</strong></em></p>
+<p>Consider for a moment how we think about values and types otherwise:  Consider <code>3</code>.  What can we say about it?  It's an <code>int</code>, yes.  It's value is <em>three</em> - as in the natural number.  But we can't necessarily <em>do</em> much with just <code>3</code>.  It's a fine value, but it's just a single value.  Consider <code>&quot;shanty town faded sub-orbital city range-rover rain singularity artisanal modem&quot;</code> - it's a <a href="http://loremgibson.com/">fine string</a>, but do we <em>really</em> want to pass that around everywhere we might need it?  Nope, so we <em>bind</em> it to a name that's easier to work with:</p>
+<pre><code class="language-fs">let lorem = &quot;shanty town faded sub-orbital city range-rover rain singularity artisanal modem&quot;
+</code></pre>
+<p>And we can now use these interchangeably, because for all intents and purposes, they are the same thing.  We put the name beside <code>let</code> and then a value after the <code>=</code> and now we have associative equivalence.</p>
+<p>So when we look at a function like this:</p>
+<pre><code class="language-fs">let addOne i = i + 1
+</code></pre>
+<p>We can say that <code>addOne</code> has the signature <code>int -&gt; int</code>.  But the <em><strong>value</strong></em> of it is the entire function itself - more easily seen (but please don't write it this way in day-to-day code) by simply our writing our function more like every other value we work with:</p>
+<pre><code class="language-fs">let addOne = (fun i -&gt; i + 1)
+</code></pre>
+<p>Pause there.  Both of those <code>addOne</code> declarations are functionally equivalent.  Both can be called by simply doing <code>addOne 1</code> (producing <code>2</code>).  And this is because - and this is critical for folks not used to functional programming:  <em><strong>Functions Are Values</strong></em></p>
+<p>Ok one more time, because this is going to get very important very soon.</p>
+<p>Functions are values.  They can be bound to a name (often are!) but they can also be used in their 'value' form - generally just called a lambda(as in other languages as well).</p>
+<p>In exactly the same way that we can assign the value <code>3</code> to a name, and then use either interchangeably, we can do the same with functions.</p>
+<h2 id="higher-order-readership">Higher order readership</h2>
+<p>So to briefly recap:
+All values have a type, and can be bound to a name.
+Functions are values, and by previous definition, have a type signature.
+That signature is a definition that describes the input(s) and output by type.
+We can call that function, to produce a new value, by sending values as input(s).</p>
+<p>There's a logical loop in our definitions there.  If you aren't already familiar with it, I strongly encourage thinking about it.  Functions are values and functions take values to produce new values.  This means, very simply, that functions can accept <em>other functions</em> as arguments.  When you see the term 'higher order functions' this is (part) of what that means.</p>
+<p>Let's build one for ourselves!</p>
+<pre><code class="language-fs">let transformInt i (f: int -&gt; int) = f i
+</code></pre>
+<p>Surprisingly simple, right?  The type of <code>transformInt</code> is <code>int -&gt; (int -&gt; int) -&gt; int</code> - note the parenthesis there that distinguish the second parameter as a function, as compared to an <code>int -&gt; int -&gt; int -&gt; int</code> which is a function taking 3 <code>int</code> arguments.  Depending on your experience, this can be a <em>significant</em> insight, and may not settle immediately.  Make a cup of coffee, think about it, consider any problems you've worked on that perhaps may have benefitted from being able to change the behavior of a function by using a function parameter.</p>
+<p>The subtlety here is that <em>any</em> function of the form <code>int -&gt; int</code> can be used here.  And we can use their values directly, as well!</p>
+<pre><code class="language-fs">let transformInt i (f: int -&gt; int) = f i
+let addOne i = i + 1
+transformInt 2 addOne //produces '3'
+
+transformInt 3 (fun i -&gt; i - 2) //produces '1'
+</code></pre>
+<h2 id="reasoning-about-signatures">Reasoning about Signatures</h2>
+<p>Hey, that's the title of the article!</p>
+<p>So we know now what signatures are, and how to read them.  But that's trivia, right?  I mean, we still need to stare at a mountain of documentation to understand what they do, don't we?  While partially true, and while samples are always helpful, understanding how to reduce unfamiliar code to raw signatures - combined with helpful names on the functions themselves - is a powerful tool to help every developer.  Especially in a non-top-5 language like F#, not every library is documented to the gills and with rich samples for every use case.  Indeed, several times a week there are people in the various F# communities asking How-To questions about libraries that have reasonable documentation, but simply lack fully-featured sample code.  Understanding how to sift through the signatures in a library - either in API documentation or via Intellisense - leads to rapid productivity gains.</p>
+<p>But how do we do it?  Well, the primary trouble seems to be around generics.  When we talk about an <code>int -&gt; int</code> there's something easy to grasp - give an <code>int</code>, get an <code>int</code>.  Even when we have different inputs and outputs: <code>int -&gt; char -&gt; string</code> gives us something I think we can reason about easily.  But I suspect something starts to short circuit for a lot of people when we move to a signature that looks like <code>('a -&gt; 'b) -&gt; ('b -&gt; 'c) -&gt; 'a -&gt; 'c</code></p>
+<p>That looks <em>indecipherable</em>  at first.  And oftentimes our first instinct internally when faced with something like that is just to throw up our hands, panic, shut down, and just decide it's too much.  But hold yourself steady for a minute, because we're going to apply our thinking powers and we are going to conquer this!</p>
+<p>As with any problem, let's start small.</p>
+<p><code>'a</code></p>
+<p>We know this is a generic, but unlike the ones we've seen previously it's not attached to anything.  There's no <code>list</code> or <code>option</code>.  It's entirely alone.  So in that sense, it can be...anything.  Any type whatsoever.  Let's just scribble in something simple, to help ourselves think.  And remember, we're using <em>types</em>  and not <em>values</em> right now.  A forewarning:  this is about helping that panic to subside, and introduces a fatal logical flaw to our reasoning, that we'll need to remove later by going back to the generic signature, but for now, let's get our mind right.</p>
+<p><code>(int -&gt; 'b) -&gt; ('b -&gt; 'c) -&gt; int -&gt; 'c</code></p>
+<p>Ok, one thing down.  Now it's the same problem again.  Let's choose another type for <code>'b</code>, just to mix things up.</p>
+<p><code>(int -&gt; string) -&gt; (string -&gt; 'c) -&gt; int -&gt; 'c</code></p>
+<p>And, once more, for completeness:</p>
+<p><code>(int -&gt; string) -&gt; (string -&gt; char array) -&gt; int -&gt; char array</code>
+<code>('a -&gt; 'b) -&gt; ('b -&gt; 'c) -&gt; 'a -&gt; 'c</code></p>
+<p>There they are, side-by-side.  And while the top one feels a little more approachable, filling in the types like that is just a means to reason a little bit more about what a function like this is doing.  Don't forget that those types are chosen arbitrarily and could be anything!</p>
+<p>Now, with things simplified for the sake of understanding, we can continue methodically and logically thinking about this function.</p>
+<p>We know that it has three parameters:
+<code>(int -&gt; string)</code> and <code>(string -&gt; char array)</code> and <code>int</code>
+And that it produces a <code>char array</code></p>
+<p>We can tell that the first two parameters are functions.  This can lead us, through logic, to a conclusion that this function on the whole must be reasonably simple - because if it's taking functions as parameters, then it is altering its behavior based on those functions, rather than holding the logic itself.  There's a hypothetically large number of ways that a function like <code>int -&gt; string</code> can be implemented, and so by taking that signature as a parameter, we can't know which one is going to be used.  Or, put another way, we've declared with this overall signature that <em>any</em> <code>int -&gt; string</code> function will do.  That's a wide net to cast, and we can work backwards from it to our conclusion that there must not be 'very much' concrete logic happening in this function.</p>
+<p>The other logical conclusion we can draw is that because of that abstracted behavior, there must be some relationship between the parameters.  Since we're taking in a function, we're probably intending to call it somehow, and in the case of <code>int -&gt; string</code> that means we are going to need an <code>int</code>.  We can find it as the third parameter - which logic demands must be used as an input to the first parameter.</p>
+<p>Wait.  That's wrong.  There could be a hardcoded <code>int</code> inside the function that is used.  And here's the fatal flaw in thinking about generic signatures from the standpoint of concrete types:</p>
+<p><code>(int -&gt; string) -&gt; (string -&gt; char array) -&gt; int -&gt; char array</code> can have unknown, hard-coded behavior that we can't make strong logical assumptions about.
+<code>('a -&gt; 'b) -&gt; ('b -&gt; 'c) -&gt; 'a -&gt; 'c</code> cannot.  You cannot write a function that holds this signature and hides away a (meaningful) hardcoded <code>'a</code> to be used with the function parameters because you can't know what the type of <code>'a</code> might be.  It's this very logic that lets us presume that the <code>'a</code> used as a parameter is used as input to the <code>'a -&gt; 'b</code></p>
+<p>So we can see that there's a strong association between the first and third parameters, and as we scan over the rest of the signature, we can draw some other logical conclusions:  Our second parameter is a <code>'b -&gt; 'c</code> which means we need to get a <code>'b</code> from somewhere.  Unlike our <code>'a</code> - there isn't one sent into our function alone.  But from the signature itself we see one is the output of the first parameter.  So it's reasonable to conclude that the output of the <code>'a -&gt; 'b</code> is used as input to <code>'b -&gt; 'c</code>.</p>
+<p>And then our final output, a <code>'c</code> is produced by our function, and that's also the output of the second parameter.  So that makes sense.</p>
+<p>So what can we reason out about this function's behavior solely from its signature?
+<code>'a</code> is passed into the <code>('a -&gt; 'b)</code> to give us a <code>'b</code>.  That <code>'b</code> is passed into the <code>('b -&gt; 'c)</code> to give us a <code>'c</code>.  And that <code>'c</code> is the output of this very function.</p>
+<p><code>('a -&gt; 'b) -&gt; ('b -&gt; 'c) -&gt; 'a -&gt; 'c</code> is the signature of function composition - present in F# via the <code>&gt;&gt;</code> operator.</p>
+<p>Stop and take a moment to reflect on what we've just done.  Imagine looking at <code>&gt;&gt;</code> in your IDE and seeing that signature and just...gasping.  But we've walked through it, step by step, and made sense of exactly what it's doing.  That's huge!  We've done it without needing to see examples of it being used.  We've done it without needing to reach for reliable old metaphors about Danish plastic.  Well done!</p>
+<h2 id="once-more-with-less-flourish">Once more, with less flourish.</h2>
+<p>There's an awkward flaw in written tuition like this - I'm victim to it as often as you.  It's so easy to <em>read</em> something, especially when it is in a teaching pace and tone, and feel very good about understanding it, but then walk away not really able to apply that knowledge.  Part of that, I think, is that so many of these sort of articles in development tend to make their point once and move on, understanding assured.  Instead, I want to walk through approaching signatures using reasoning with you here, with slightly less boilerplate, to show how this isn't about a single magical <code>&gt;&gt;</code> operator - but that it works universally and really can be applied.</p>
+<p>Up at the start, we glanced at this one:
+<code>('a -&gt; 'b -&gt; 'a) -&gt; 'a -&gt; seq&lt;'b&gt; -&gt; 'a</code></p>
+<p>Uff!  It's a weird one!  But is it really?  Our parameterized function uses an <code>'a</code> and a <code>'b</code> to produce an <code>'a</code>.  We once again see that we send in a <code>'a</code> as another parameter.  So let's use the same logic - that it's used as input to that function.  We also take in a <code>seq&lt;'b&gt;</code> and that <code>'b</code> matches our function...but not the <code>seq</code>.  It's notable that there's no other <code>seq</code> in the signature.  So we take in this collection of <code>'b</code> values but we don't use them with our function, nor do we output a <code>seq</code>.  Logic leads us to consider that we must be iterating over all the values in that <code>seq</code> - because if we were using only a single value, then this function would be better stated as <code>('a -&gt; 'b -&gt; 'a) -&gt; 'a -&gt; 'b -&gt; 'a</code> (itself nonsensical, since we could just call the function parameter directly);  and if we wanted some subset of values from the <code>seq</code> - then we'd still be handling a <code>seq</code> and so the matter of selecting a subset would be better handled in its own function (or in yet another function-as-parameter that somehow indicated how many to use, like an <code>int</code> or a <code>'a -&gt; bool</code>).  We can also explore the idea that we keep using our single <code>'a</code> with each <code>'b</code> in the function...but that would give us a <code>seq&lt;'a&gt;</code>, which doesn't match our output, either.  So we can break it down:  We call our function with our <code>'a</code> parameter and the first <code>'b</code> and that gives us...an <code>'a</code> - which we can use with the second <code>'b</code> to get an <code>'a</code>.  Once we're out of <code>'b</code> then we would be left with just the last <code>'a</code>.</p>
+<p>And that's <strong>exactly</strong> what this function does.  <code>Seq.fold</code> (which has siblings in <code>List</code> and <code>Array</code>, amongst others).  We've sussed out the behavior without seeing the code in action, or even the (very helpful) documentation about it.</p>
+<p>Here's one that I have, prior to this, never actually used - just to level the playing field.</p>
+<p><code>Seq.scan</code> has a signature of <code>('a -&gt; 'b -&gt; 'a) -&gt; 'a -&gt; seq&lt;'b&gt; -&gt; seq&lt;'a&gt;</code></p>
+<p>That panic I mentioned earlier?  Yeah, I just felt a rush of it.  But almost all our logic from up above still stands, up until the very end.  That's helpful.  Instead of a single <code>'a</code> we have a <code>seq&lt;'a&gt;</code>.  Wait, with <code>fold</code>, we had reasoned that the <code>'a</code> parameter must be used to bootstrap the chaining of our function, since we didn't get a <code>seq&lt;'a&gt;</code> on the output.  But now we do.  Does that mean it's what it does?  Well no, that's flawed.  If we had a <code>seq&lt;'b&gt;</code> that we wanted to transform into a <code>seq&lt;'a&gt;</code> then we would just use <code>Seq.map</code> (<code>(('a -&gt; 'b) -&gt; seq&lt;'a&gt; -&gt; seq&lt;'b&gt;</code>) - so this must be doing something else.  The other significant logical thing it could be doing is collecting all the output <code>'a</code> from the function we pass in.  And sure enough, that's <em>precisely</em> what it does.</p>
+<h2 id="more-than-just-a-neat-trick">More than just a neat trick</h2>
+<p>None of this is to say that there is <em>infallibility</em> or that a signature can tell you <em>everything</em>.  <code>Seq.foldBack</code> is <code>('a -&gt; 'b -&gt; 'b) -&gt; seq&lt;'a&gt; -&gt; 'b -&gt; 'b</code> - and without the hint in the name - or in the documentation - the signature alone doesn't clue you into the fact that it's operating from the end of the collection instead of the front.  (Even though the raw behavior we reasoned out is correct).</p>
+<p>But when we look at the F# ecosystem, there's a strong sense in projects and libraries that this sort of thing is implicitly understood.  We talk a lot about the signatures of functions, because in so little text it can communicate so much.  A relatively comprehensive amount of API Reference documentation - with modules, function names, and their signatures - but much smaller amounts of sample code covering all the possible functions and how to call them and use them.  We, as developers, can bridge that divide by learning skills such as this in order to empower ourselves.  These sorts of things need not remain mysteries, or esoteric corners we avoid until illuminated by some other hand.</p>
+<p>Let us use our own reasoning faculties to illuminate these dark corners.  Let us realize that we are already capable of understanding and working through the code before us.  We just need, sometimes, to sit down and consider it step by logical step.  But we'll come back to that in a later article.</p>
+
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </body>
+</html>

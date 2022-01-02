@@ -1,0 +1,190 @@
+<html>
+  <head>
+    <meta charSet="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <title>
+      Unions, Cases, and Types (oh my) - Arrows born in flight
+    </title>
+    <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon.png"/>
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/font-awesome/4.7.0/css/font-awesome.min.css"/>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Open+Sans"/>
+    <link rel="stylesheet" href="https://unpkg.com/bulma@0.8.0/css/bulma.min.css"/>
+    <link rel="stylesheet" href="https://unpkg.com/bulma-prefers-dark"/>
+    <link rel="stylesheet" href="/style/vs2015.css"/>
+    <link rel="stylesheet" type="text/css" href="/style/style.css"/>
+    <script src="/js/highlight.pack.js"></script>
+    <script type="text/javascript">
+      hljs.initHighlightingOnLoad();
+    </script>
+  </head>
+  <body>
+    <section class="hero is-info is-medium is-bold">
+      <div class="hero-body">
+        <div class="container has-text-centered">
+          <h1 class="title">
+            Musings on code
+          </h1>
+        </div>
+      </div>
+    </section>
+    <div class="container">
+      <section class="articles">
+        <div class="column is-10 is-offset-1">
+          <div class="card article">
+            <div class="card-content">
+              <div class="media-content has-text-centered">
+                <p class="title article-title">
+                  <a href="/posts/02-unions-classes-cases.html">
+                    Unions, Cases, and Types (oh my)
+                  </a>
+                </p>
+                <p class="subtitle is-6 article-subtitle">
+                  <a href="#">
+                    @laenas
+                  </a>
+                  on 2021-02-03
+                </p>
+              </div>
+              <div class="content article-body">
+                <h2 id="type-safety-is-difficult-or-at-least-irritating">Type Safety is difficult (or at least irritating)</h2>
+<p>One of the challenges in moving to a language like F#, especially when your point of departure is a language like C#, is in coping with what seems to be a fixation on types.  Whereas in C# it is commonplace and idiomatic to cast types to and fro, up and down their inheritence trees, such practices are discouraged and made more difficult in F#.  While not uniquely the cause of confusion, being well-practiced in Object Oriented patterns appears to have a problematic effect when a developer approaches programming involving algebraic data types, especially sum types - such as Discriminated Unions in F#.  They provide an enormous boost to type safety - reducing our need to worry about the permutations on data state - but that does come at a cost of actually needing to ensure that safety exists.  It's a major stumbling block that I see again, and again, and again with F# novices, so let's take a slightly in-depth look at unions and how they can be used to solve familiar problems in different ways.</p>
+<h2 id="everything-old-is-new-again">Everything old is new again</h2>
+<p>F#'s discriminated unions are, despite their simple nature, an unbelievably powerful tool in modelling a domain, because it allows us to cleanly model the 'either-or' nature of much of our data.</p>
+<pre><code class="language-fs">type Hypothesis =
+    | True
+    | False
+</code></pre>
+<p>Here, we can see how we can immediately constrain a <code>Hypothesis</code> to being either true or false.  Immediately, we can see that this could also be modelled as a <code>bool</code> - which is true.  OO-savvy readers will additionally notice that this looks a lot like an <code>enum</code> - and that is also true.  But hang on, it gets better:</p>
+<pre><code class="language-fs">type Hypothesis =
+    | True of Proof
+    | False of CounterExample
+</code></pre>
+<p>We can define the cases with different data!  In our example, we can acknowledge that a <code>True</code> <code>Hypothesis</code> consists of a <code>Proof</code> and a <code>False</code> <code>Hypothesis</code> consists of a <code>CounterExample</code>.</p>
+<p>We should really stop to think for a moment about what this means, especially if we're used to Object Oriented type hierarchies.</p>
+<h2 id="unions-as-alternative-inheritence">Unions as alternative inheritence</h2>
+<p>Spend almost any time modelling a domain in an object-oriented fashion and you'll end up with examples of that leaky abstraction, or that hanging method, due to inheritence.  At which point we go back to the drawing board and consider <em>long and hard</em> how to restructure things to ensure that we don't accidentally call the wrong method at the wrong time.  We end up thinking about everything, not necessarily in terms of their own types - but of their base types, as well as their child types.  What data properties should be <code>private</code> or <code>protected</code> or <code>public</code> - what is <code>virtual</code> or perhaps <code>abstract</code>?</p>
+<p>Unions allow us to gracefully sidestep these issues of trying to keep track of what data bleeds to where in a class hierarchy.  Each case defines its own data.  Consider for a moment the parallels, in an ideal world:  In C#, we often use inheritence as a means to pass child instances with different types by handling them as a shared ancestor class.  <code>Apple</code> and <code>Orange</code> both inherit from <code>Fruit</code>.  But with unions, we say clearly:  A <code>Fruit</code> is either an <code>Apple</code> or an <code>Orange</code> - and there is nothing else.</p>
+<p>While this initially seems constraining, to understand how it actually simplifies and solidifies our domain requires us to look a little more at the usage of unions.</p>
+<h2 id="cases-types">Cases != Types</h2>
+<p>Consider the following definition:</p>
+<pre><code class="language-fs">type Fruit =
+    | Apple
+    | Orange
+</code></pre>
+<p>Here, we have defined <strong>one</strong> type.  It's important to understand that.  Neither <code>Apple</code> nor <code>Orange</code> are types.  An extremely common mistake made by novices is to attempt to use unions as a form of shorthand for describing inheritence trees:</p>
+<pre><code class="language-fs">let core (apple:Apple) = //&quot;The type 'Apple' is not defined.&quot;
+</code></pre>
+<p>We can't write a function that only handles Apples because, as the compiler tells us, <code>Apple</code> is not a defined type.  This confusion is often magnified when using a union with cases named after other types (often records):</p>
+<pre><code class="language-fs">type Apple = {Type: string; Cored: bool}
+type Orange = {Type: string}
+type Fruit =
+    | Apple of Apple
+    | Orange of Orange
+
+let core (apple:Apple) =
+    {apple with Cored = true}
+
+let myFruit = Apple {Type = &quot;Ambrosia&quot;; Cored = false}
+
+core myFruit 
+(* This expression was expected to have type
+    'Apple'    
+but here has type
+    'Fruit' *)
+</code></pre>
+<p>In this instance, <code>core</code> takes an <code>Apple</code>(the type) but we give it a <code>Fruit</code> (of case <code>Apple</code>), and the compiler throws an error.  And without understanding the critical difference between the case and the type, even the function signature of <code>core</code> (<code>Apple -&gt; Apple</code>) doesn't immediately help us.  We've given it an Apple!  What more does it want!?</p>
+<h2 id="unions-are-not-just-glorified-enums">Unions are not just glorified Enums</h2>
+<p>One common pattern seems to follow developers with experience with other languages:</p>
+<pre><code class="language-fs">type FruitType = 
+    | Apple
+    | Orange
+
+type Fruit = {Type: FruitType}
+</code></pre>
+<p>Which seems logical, in isolation:  We <em>want</em> a Fruit as a record type, which looks and feels familiar like a class - and then we just use the union to indicate which type of Fruit any given instance is.</p>
+<p>The problem here is that in - I would estimate - the majority of cases we've sacrified everything to be in this state:</p>
+<p>If we want to do anything meaningful with the distinction between types of Fruit, we now end up needing even more pattern matching code - either by dotting into <code>Fruit</code> or by writing helpers to identify types for us: <code>if IsApple someFruit then //..</code>.  Both being ultimately redundant, since they're just hiding the union matching.
+We lose in the complex case as well:  Since we now have to be very careful about how we extend our <code>Fruit</code> type - all common traits must be shared across all <code>Fruit</code> types, and we introduce the need to do very careful error handling to track states.  Apples have Cores, Oranges have rinds, Cherries have pits (shared with Peaches, let us not forget), and so forth.</p>
+<h2 id="a-remedy-worse-than-the-ailment">A remedy worse than the ailment?</h2>
+<p>It's at about this point the realization dawns:  In order to work with <code>Fruit</code> in the abstract - we have to pattern match it to do anything meaningful with it.</p>
+<pre><code class="language-fs">//For the sake of this example, we're not going to attach data
+type Fruit = 
+    | Apple
+    | Orange
+
+let prepare fruit =
+    match fruit with
+    | Apple -&gt; //core it
+    | Orange -&gt; //peel it
+
+let juice fruit =
+    match fruit with
+    | Apple  -&gt; //This example just gave me a twenty minute long distraction
+    | Orange -&gt; //Into researching how to make apple juice at home
+</code></pre>
+<p>And so on.  It's understandable that after some amount of this repetition, something starts to feel like it needs be reduced.  But it's important to note that we're playing by slightly different rules here - because of the earlier point:  this is an alternative to type hierarchies.  So whereas in that traditional inherited model, we'd hide away our differing behavior inside the child classes themselves, with unions it stands at the forefront and we gain compiler support to ensure that we always handle all our cases.</p>
+<h2 id="the-prestige">The Prestige</h2>
+<p>So with a lot of boilerplate out of the way, here's the real why and how of the power of unions - we just need to move our example to something a little more involved:</p>
+<pre><code class="language-fs">//Let's imagine we're writing a game and want to model equipment that benefits a character
+type Equipment =
+    | Base of name: string * wisdomStat: int
+    | Prefixed of equipment: Equipment * wisdomBonus: int * prefix: string
+</code></pre>
+<p>Do you see it?  Yes?  No?  Let's pull that trick one more time.</p>
+<pre><code class="language-fs">type Equipment =
+    | Base of name: string * wisdomStat: int
+    | Prefixed of equipment: Equipment * wisdomBonus: int * prefix: string
+    | Suffixed of equipment: Equipment * wisdomBonus: int * suffix: string
+</code></pre>
+<p>The power comes from that most terrifying <em>r</em>-word:  <em>recursion</em>.  Deep breath, it's alright, let's just reason about this for a moment!<br />
+In this example we'll see that there is (and must be, as with all recursion) our base case:  <code>Base</code> - which specifically <strong>does not</strong> include other <code>Equipment</code>.  The other two cases do, however, and if we think about how we'd go about creating those cases, we can work from a position of pure logic:  In order to create a <code>Prefixed</code> we need to have some other <code>Equipment</code>...if we have some other <code>Prefixed</code> then...we're back where we started.  And if we have <code>Suffixed</code> then we end up with a similar problem.  But I can create <code>Prefixed</code> <code>Equipment</code> by passing some form of <code>Base</code> in, and that's that:</p>
+<pre><code class="language-fs">let heroicSocks = Prefixed(Base(&quot;Socks&quot;,0),3,&quot;Heroic&quot;)
+//Heroic Socks (+3 Wisdom)
+</code></pre>
+<p>And to step back to that logic, we can make <code>Suffixed</code> equipment in the same way.  Even better, we can do both, and in either order!</p>
+<pre><code class="language-fs">let heroicSocksOfBar = Prefixed(Suffixed(Base(&quot;Socks&quot;,0),2, &quot;of Bar&quot;),3,&quot;Heroic&quot;)
+let heroicSocksOfFoo = Suffixed(Prefixed(Base(&quot;Socks&quot;,0),3, &quot;Heroic&quot;),2,&quot;of Foo&quot;)
+</code></pre>
+<p>And note that nothing here stops us from continuing onwards: <code>Fancy Oversized Blue Socks of Astonishment and Woe</code> is just a matter of stacking <code>Prefixed</code> and <code>Suffixed</code> cases on top of one another, using the same, simple, elegant pattern.<br />
+It's not to say this is impossible to handle without unions - just more complex, or difficult to work with.  Consider how you'd model this behavior with a class hierarchy.  Trying to subclass <code>PrefixedEquipment : Equipment</code> makes standalone <code>SuffixedEquipment : Equipment</code> an exclusive choice.  Adding <code>IPrefixedEquipment</code> interfaces demands handling those interfaces and types separately from the <code>ISuffixedEquipment</code>.  Perhaps even an <code>IAugmentedEquipment</code> - and then writing complicated (and leaky) logic to indicate whether a given implementation is a suffix or a prefix.</p>
+<p>Even moreso, consider how you'd model this, even in F#, but without that recursive union.  It's not impossible, just not as clean and - importantly - typesafe through-and-through.  And not just now, but as easily as we can add more enhancements in the same way, beyond just the scope of a name and stat calculation:  <code>| Scripted of equipment: Equipment * behavior: (EquipmentEvent -&gt; Equipment)</code> - by adding a case that contains a function that returns equipment given some known type - we can end up with ad-hoc behavior.  And even better, just as with the name, we can do this <em>repeatedly</em> so that individual snippets of behavior can be just that - small snippet functions - rather than a single enormous function with complicated logic to handle all possible cases.</p>
+<h2 id="whats-the-cost-wheres-the-struggle-just-more-types">What's the cost?  Where's the struggle?  Just more types.</h2>
+<p>So we can have these nested recursive unions, but unwrapping them and processing all of those layers every time I just want to know 'what is the name of this item' is annoying - even if we have a helper function.  Entirely true!  But by simply creating more types to suit those needs, we can retain both the flexibility we have and also augment it with simpler handling:</p>
+<pre><code class="language-fs">type Equipment =
+    | Base of name: string * wisdomStat: int
+    | Prefixed of equipment: Equipment * wisdomBonus: int * prefix: string
+
+type Practical = {Name: string; WisdomBonus: int; RawEquipment: Equipment}
+
+let makePractical e =
+    let rec build equip (pName,pWis)= 
+        match equip with
+        | Base (name,wis) -&gt; 
+            ($&quot;%s{pName}%s{name}&quot;,wis + pWis)
+        | Prefixed (eq,wis,prefix) -&gt; 
+            build eq ($&quot;%s{prefix} %s{pName}&quot;, wis + pWis)
+
+    let (name,wis) = build e (&quot;&quot;,0)
+
+    {Name = name; WisdomBonus = wis; RawEquipment = e}
+
+let heroicSocks = Prefixed(Base(&quot;Socks&quot;,0),3,&quot;Heroic&quot;)
+
+let practicalSocks = makePractical heroicSocks
+</code></pre>
+<p>We hold that reference to our raw stats, both so that we can augment and modify and recalculate on the fly:</p>
+<pre><code class="language-fs">let cursedSocks = Prefixed(practicalSocks.RawEquipment, -5, &quot;Cursed&quot;) |&gt; makePractical
+</code></pre>
+<p>I leave, knowingly, <a href="https://twitter.com/MattAndersonNYT/status/772002757222002688">the sequencing of these augmentations</a> as an exercise for the reader.</p>
+<h2 id="in-conclusion">In conclusion</h2>
+<p>What can in addition be said, relative to what stands above?  We've looked at how unions aren't just enums.  We've built up the need to do complicated pattern matching by using unions - but then also reduced them back to simply handled, but strictly typesafe, records again.  We've seen how they can take what would normally be a complicated, interwoven jumble of interfaces and inherited types, and distill them down to simple, high-level abstractions.  We've talked about fruit and socks.</p>
+<p>And, hopefully, we've learned something.</p>
+
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </body>
+</html>

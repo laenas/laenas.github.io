@@ -1,0 +1,230 @@
+<html>
+  <head>
+    <meta charSet="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <title>
+      There is No Magic - Computation Expressions - Arrows born in flight
+    </title>
+    <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon.png"/>
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/font-awesome/4.7.0/css/font-awesome.min.css"/>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Open+Sans"/>
+    <link rel="stylesheet" href="https://unpkg.com/bulma@0.8.0/css/bulma.min.css"/>
+    <link rel="stylesheet" href="https://unpkg.com/bulma-prefers-dark"/>
+    <link rel="stylesheet" href="/style/vs2015.css"/>
+    <link rel="stylesheet" type="text/css" href="/style/style.css"/>
+    <script src="/js/highlight.pack.js"></script>
+    <script type="text/javascript">
+      hljs.initHighlightingOnLoad();
+    </script>
+  </head>
+  <body>
+    <section class="hero is-info is-medium is-bold">
+      <div class="hero-body">
+        <div class="container has-text-centered">
+          <h1 class="title">
+            Musings on code
+          </h1>
+        </div>
+      </div>
+    </section>
+    <div class="container">
+      <section class="articles">
+        <div class="column is-10 is-offset-1">
+          <div class="card article">
+            <div class="card-content">
+              <div class="media-content has-text-centered">
+                <p class="title article-title">
+                  <a href="/posts/05-compexp.html">
+                    There is No Magic - Computation Expressions
+                  </a>
+                </p>
+                <p class="subtitle is-6 article-subtitle">
+                  <a href="#">
+                    @laenas
+                  </a>
+                  on 2021-12-27
+                </p>
+              </div>
+              <div class="content article-body">
+                <h2 id="there-is-no-magic">There is No Magic</h2>
+<p>It's my catchphrase, if I were to have one in the technical realm.  There is No Magic.  It's a mantra and a truism and a guiding principle.<br />
+All too often, in a technical context, I see developers behave like primitive man during an eclipse - their dependencies and frameworks and languages, some unassailable force of nature that is beyond the reckoning of mankind.</p>
+<p>The confusion seems to stem from a misjudgment - that something one doesn't understand in the moment must be driven by forces beyond understanding.  It's evil omen thinking.  But we're developers, our core skill is problem solving, and yet we don't always reach for it in the moment.  We perhaps get too focused on the goal, or on our own lack of knowledge, and leave that skill behind.  We don't break it down, we don't do the analysis, we don't trust ourselves.</p>
+<p>Let's start changing that.</p>
+<h2 id="computation-expressions">Computation Expressions</h2>
+<p>One of the features that makes F# super neat, but also confuses the hell out of newcomers to the language, is Computation Expressions.  In some cases we'll see them called <code>workflows</code> or <code>builders</code> - for reasons we'll end up at later.</p>
+<p>We tend to be first introduced to them via F#'s core <code>async</code> and <code>task</code> workflows, as it's the strongly preferred way to work with asynchronous operations in F#.  A direct example being a workflow for making an HTTP request using the standard .NET <code>HttpClient</code>:</p>
+<pre><code class="language-fs">let httpGet (url:string) = task {
+    use http = new HttpClient()
+    let! response = http.GetAsync(url)
+    return! response.Content.ReadAsStringAsync()
+}
+</code></pre>
+<p>There are two clues that we are working with a Computation Expression - the first is the combination of an identifier: <code>task</code> being followed by a block of curly-braced code;  the second is that block containing <code>!</code> versions of familiar terms:  <code>let!</code> for example.</p>
+<p>Regardless, we can all read this code, and broadly understand what it's doing.  Especially if we're familiar with languages that do similar things with <code>await</code> as an inline keyword construct.  We have asynchronous operations like <code>GetAsync</code> and something here is doing something to wait for them to finish before moving onwards to the next step in the code;  but also in a non-blocking way.  And we'd be correct in that assumption.</p>
+<p>But then we're going to stumble across a custom Computation Expression:</p>
+<pre><code class="language-fs">let unsafeAsyncOperation x = asyncResult {
+    let! step1 = doUnsafeThing x
+    let step2 = thenSomething step1
+
+    return getResult step1 step2
+}
+</code></pre>
+<p>And we try to modify it by adding a third step, using that previous HTTP workflow:</p>
+<pre><code class="language-fs">let unsafeAsyncOperation x = asyncResult {
+    let! step1 = doUnsafeThing x
+    let step2 = thenSomething step1
+    let! step3 = httpGet &quot;http://laenas.github.io&quot;
+
+    return getResult step1 step2
+}
+</code></pre>
+<p>The compiler suddenly complains, it wants an <code>Async&lt;'a&gt;</code> but we're giving it a <code>Task&lt;string&gt;</code>.
+And this is one, but not the only, place where people seem to get conceptually stuck.  What is going on, why doesn't it just work?  They enter a spiral of removing the <code>!</code>s, which causes even more arcane compiler errors, or adding them to other places - to the same effect.  The panic sets in, we retreat from our place of logic and principle, and resort to just throwing keypresses at the problem, hoping something will just compile.</p>
+<p>We can work with CEs like this, but we can work with them more effectively - especially with regards to building our own - if we understand their machinery.  <a href="https://docs.microsoft.com/en-us/dotnet/fsharp/language-reference/computation-expressions">MSDN</a> has documentation covering much of this, but I think it skips (rightfully) a more foundational step to thinking about the sugaring the compiler applies to Computation Expressions.</p>
+<h2 id="back-to-the-beginning">Back to the Beginning</h2>
+<p>The F# language(and compiler) is <em>constantly</em> sugaring things for us, in ways that we forget about - especially if we haven't been with the language since its birth - or don't have experience with sibling languages.</p>
+<p>One direct example being functions - the mathematical-theoretical underpinnings of F# (and functional programming more generally) are based in the mathematical concept of functions - mappings from some single input value to some output value.  The key point there is single input, even if that single input is a structure like a tuple or a list, it is still logically a single input.  When we write functions with multiple parameters - what we're 'actually' doing is writing a chain of single-input functions that produce single-input functions:</p>
+<pre><code class="language-fs">let f x y = x &gt;&gt;&gt; y
+//Is conceptually equivalent to
+let g x = (fun y -&gt; x &gt;&gt;&gt; y)
+</code></pre>
+<p>We don't have to think about this with F# - we can do the more natural thing by just listing all parameters and, if anything, we end up needing to learn from a different direction the nature of partial application that aligns with this form.  The language has our backs, without sacrificing the foundational concept at play.</p>
+<p>In another slightly more dated example, F# has - though not used often - a so-called verbose syntax.  One notable feature of it is it's use of the keyword <code>in</code>:</p>
+<pre><code class="language-fs">let x = 1 in
+let y = 2 in
+x + y
+</code></pre>
+<p>I draw attention to it because it poses a curious question:  Why <code>in</code>?  What about that order of operations puts <code>x</code> &quot;in&quot; the code that follows?  And herein lies a curious link between this and the previous point - If F# is ostensibly grounded in mathematics - input/output functions - then where is the <em>function</em> in that snippet?  With experience elsewhere, we might casually shrug this question off as wordplay, but it's got a curious, subtle power.  Those three lines might reside inside a function, certainly, but there is still no function amongst them.  (let us disregard the operator, dear reader)</p>
+<p>We can rewrite that snippet in a more conceptually pure way as follows:</p>
+<pre><code class="language-fs">1 |&gt; (fun x -&gt; 
+  2 |&gt; (fun y -&gt;
+    x + y
+  )
+)
+</code></pre>
+<p>It looks weird, and isn't going to pass for day to day code, but it's logically what's happening.  The value we bind to <code>x</code> becoming an 'external' value that gets pushed into a function whereby <code>x</code> is the input binding name and the rest of the code being the body of that function.  Allowing us to write it the other way not only helps reduce the burden of increasingly arrowed code, but also structures it in ways that are more familiar and similar to other languages.</p>
+<p>This is all well and good, it's curious, but how does it help us demystify Computation Expressions?  We have one more brief detour to make.</p>
+<h2 id="the-other-bind">The other Bind</h2>
+<p>It likely seems as a curiosity that when talking about code like <code>let x = 1</code> we refer to them as bindings.  That we have bound a value to a name.  As we see above, there's a logic to it.  But we are also familiar with the same word being used in module functions: <code>Option.bind</code>, for example.  How this fits together is another, important, part of the overall picture we are attempting to assemble.  When we see code such as this:</p>
+<pre><code class="language-fs">
+Some 1
+|&gt; Option.bind (fun x -&gt; Some (x + 2))
+</code></pre>
+<p>It's visible that we are binding the contextual value and assigning a name to it in the function that follows.  In this case, <code>x</code> is <code>1</code> and <code>Option.bind</code> is just acting as a removal of the boilerplate code of matching the input value and in the <code>Some</code> case, applying the value, and in the <code>None</code> case, continuing onwards.</p>
+<p>There's a parallel here:</p>
+<pre><code class="language-fs">Some 1
+|&gt; Option.bind (fun x -&gt;
+  Some 2 
+  |&gt; Option.bind (fun y -&gt;
+    Some (x + y)
+  )
+)
+</code></pre>
+<p>There's that arrow again - the same as above, except that we're now dealing with <code>Option</code> values, rather than primitives.  And this code is entirely reasonable.  Your codebase is probably filled with situations where you will have chains of functions following this pattern.  It's entirely predictable and normal.  But it's <strong>the same arrow</strong> and wouldn't it be nice if we could flatten it, in the same way that we can with primitive types.</p>
+<p>Enter Computation Expressions.</p>
+<p>F# doesn't ship with one for <code>Option</code> - and from a practicality standpoint it seems like overhead, since <code>Option</code> tends to be relatively short-lived in the context of workflows - either getting defaulted or converted to a richer type like <code>Result</code> in short order.  But that doesn't mean we can't make one.</p>
+<h2 id="what-makes-it-tick">What makes it tick</h2>
+<p>Computation Expressions are based on creating a type - generally called a <code>Builder</code> - that implements by convention <a href="https://docs.microsoft.com/en-us/dotnet/fsharp/language-reference/computation-expressions">some combination</a> of methods of specific known signatures.  And while that page may seem unassailable to begin with, we can demystify it by looking at our own use case and its implementation.</p>
+<p>The <code>let!</code> keyword, for example, requires a <code>Bind</code> method to be present, and in the table we can see it expects a signature of <code>M&lt;'T&gt; * ('T -&gt; M&lt;'U&gt;) -&gt; M&lt;'U&gt;</code> - and it initially looks frightening, just a soup of letters.  But we can quickly make sense of it by substituting in our specific example: <code>Option&lt;'T&gt; * ('T -&gt; Option&lt;'U&gt;) -&gt; Option&lt;'U&gt;</code> and that's much more understandable!  Indeed, while it's using tupled params, it's clearly just <code>Option.bind</code>!</p>
+<pre><code class="language-fs">type MaybeBuilder() =
+  member _.Bind(x,f) = Option.bind f x
+
+let maybe = MaybeBuilder()
+
+let flat = maybe {
+  let! x = Some 1
+  let! y = Some 2
+}
+</code></pre>
+<p>Note here that the term <code>Maybe</code> comes up in this(and all other similar examples) both because it's a friendly alternate name for <code>Option</code> - but also because the CE style keyword - <code>option</code> is already used as a postfix type notation, so <code>maybe</code> keeps it simple.</p>
+<p>Along with that, a note of the curiosity:  <code>maybe</code> is just an alias for an instance of our Builder type.  There's no magic here either - and indeed the consistency remains - you can use the full class name as well (but why would you?):</p>
+<pre><code class="language-fs">let flat = MaybeBuilder() {
+  let! x = Some 1
+  let! y = Some 2
+}
+</code></pre>
+<p>But we haven't finished yet, our arrow isn't entirely flattened, we still need the sum of these two values.  To do so, we just need to add support for the <code>return</code> keyword, via the <code>Return</code> method (<code>'T -&gt; M&lt;'T&gt;</code>).  We can logic this one out:  If I give you a value, then clearly you have <code>Some</code> value, and that's what we want <code>Return</code> to do:</p>
+<pre><code class="language-fs">type MaybeBuilder() =
+  member _.Bind(x,f) = Option.bind f x
+  member _.Return(x) = Some x
+
+let maybe = MaybeBuilder()
+
+let flat = maybe {
+  let! x = Some 1
+  let! y = Some 2
+
+  return x + y
+}
+</code></pre>
+<p>And thus, we've flattened the arrow.  It's all still just that chain of function calls under the hood, but it looks like it isn't.  It's easier to read, it doesn't arrow, and we can ignore some of the complexities.</p>
+<h2 id="and-thus-armed-with-this-knowledge">And thus armed with this knowledge...</h2>
+<p>Let's return to our earlier example:</p>
+<pre><code class="language-fs">let unsafeAsyncOperation x = asyncResult {
+    let! step1 = doUnsafeThing x
+    let step2 = thenSomething step1
+    let! step3 = httpGet &quot;http://laenas.github.io&quot;
+
+    return getResult step1 step2
+}
+</code></pre>
+<p>Where our compiler was complaining about wanting an Async, getting a Task, all that good stuff.  With what we now know, can we puzzle out a reasoning to that error, and in doing so, a solution?</p>
+<p>We first need to think about what it is that the CE is doing, with all that binding.  We might be inclined to handwave it away as some sort of magic, we've learned the incantation, we're good to go.  But it's important for us to connect the dots, to think it through, and see the bigger picture for what it is.  Let's do so by looking at the CE in the above example:  <code>asyncResult</code> - we don't need to know the exact implementation - can be inferred to work with the type <code>Async&lt;Result&lt;'T&gt;&gt;</code> - but something very curious is happening here, at the head of which we might ask the question:  Why not just use <code>async {}</code>?  And the answer can be drafted quickly enough:</p>
+<pre><code class="language-fs">let asyncResultX : Async&lt;Result&lt;int,unit&gt;&gt; = async {return (Ok 1)}
+let asyncResultY : Async&lt;Result&lt;int,unit&gt;&gt; = async {return (Ok 2)}
+
+let func = async {
+  let! x = asyncResultX
+  let! y = asyncResultY
+
+  return x + y //ERROR
+}
+</code></pre>
+<p>We get an error here because you cannot directly add, with the <code>+</code> infix operator, two <code>Result</code>s.  They themselves would need to be bound. So how can something like <code>asyncResult {}</code> get around this?</p>
+<p>Consider how CE's work:  <code>let!</code> is not magically, presciently, stripping away the context of <code>Async</code> or <code>Option</code> - nor is it automatically calling to <code>Option.bind</code> - the builder type is something in our control, and the compiler desugars <code>let!</code> into a call to our <code>Bind</code> method.  It's all in the control of the developer of the CE!  And since code is just code, we can do what we need.</p>
+<p>How can <code>asyncResult {}</code> allow you to <code>let!</code> bind <code>Async&lt;Result&lt;&gt;&gt;</code> to get at the inner value?  Well, it might look something like this:</p>
+<pre><code class="language-fs">//snip
+member _.Bind(x,f) = async {
+  match! x with
+  | Ok x'' -&gt; return! f x''
+  | Error _ -&gt; return! x }
+</code></pre>
+<p>We use an <code>async</code> CE to let us <code>match!</code> (bind, then match on the inner value) and that lets us unwrap the <code>Result</code> to get at the innermost value to pass it to our continuation function.  As an aside, <code>return!</code> does exactly what you'd expect from a <code>!</code> - it binds and then returns.  Since our continuation function by necessity must return an <code>AsyncResult</code> - if we were to <code>return</code> from the <code>async {}</code> we would have an <code>Async&lt;Async&lt;Result&lt;&gt;&gt;&gt;</code>.</p>
+<p>The key here is to recognize that since it's all just code, it's possible to tweak and adjust this code to suit our use cases.  We're able to create CEs for composed cases like <code>AsyncResult</code> - just as we could do so for <code>AsyncOption</code> - what would that look like?  Give it a shot!  But I draw upon the greater impression:  it's all just code, and we can customize it in other ways as well, using our foundational principles!</p>
+<p>Let's return to our <code>maybe {}</code> builder.  Let's watch it in motion!</p>
+<pre><code class="language-fs">type MaybeBuilder(format) =
+  member _.Bind(x,f) = 
+    printfn format x
+    Option.bind f x
+  member _.Return(x) = Some x
+
+let maybe format = MaybeBuilder(format)
+
+let flat = maybe &quot;--binding: %A&quot; {
+  let! x = Some 1
+  let! y = Some 2
+
+  return x + y
+}
+</code></pre>
+<p>Take a moment and consider the somewhat unexpected composition here, don't just understand <em>what</em> it is doing, but <em>how</em> it is possible to combine things in this manner.  The tool here isn't the pattern of how to debug print in a builder - it's how you can <em>customize</em> a builder, and therefore a CE; from 'outside' the CE itself, as a consumer of it.</p>
+<p><code>MaybeBuilder()</code> isn't magic, it's just a class type, and like any other class type it can have constructor parameters that it uses elsewhere in its internal logic.</p>
+<p><code>maybe</code> isn't magic, it's just a binding, and we've simply changed it from a value binding to a function that is parameterized.</p>
+<p>And now our CE prints out the incoming binding values when our <code>Bind</code> method is called.</p>
+<p>What other compositional logic can you, reader, envision being useful and interesting to add to a CE?</p>
+<h2 id="and-thus-our-solution">And thus, our solution</h2>
+<p>We return, finally, to that initial error.  Confused as we were when the compiler barked about type mismatches, and we wrestled with exclamation points, do we see it more clearly now?</p>
+<p>Inside our hypothetical <code>asyncResult {}</code> we've attempted to bind a <code>Task</code> - perhaps even a <code>Task&lt;Result&lt;&gt;&gt;</code>!  But what the compiler is hinting towards is that the builder for our CE doesn't operate against that type.  A conclusion forms:  We need to turn our <code>Task</code> into an <code>Async</code> - and thus a call to <code>Async.AwaitTask</code> resolves our problem.</p>
+<p>When we see our own code arrowing rightwards across the indents, we might be able to stop and consider building our own CE, to not only improve readability, but declutter and reduce opportunities for error and confusion when handling increasingly nested functions.</p>
+<p>There's a lot more to be said about CEs, and perhaps in the future the topic can be revisited, but in this instance they're a proxy, a show pony, for the greater lesson I'm trying to deliver:  There Is No Magic.  Everything makes sense, and when faced with the strange, the unknown, the confusing, or the magical - we should use those impressions as a clue to ourselves to strap in and analyze the problem.</p>
+<p>It'll save you a lot of time in the long run.</p>
+
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </body>
+</html>

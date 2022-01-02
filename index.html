@@ -1,0 +1,984 @@
+<html>
+  <head>
+    <meta charSet="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <title>
+      Home - Arrows born in flight
+    </title>
+    <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon.png"/>
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/font-awesome/4.7.0/css/font-awesome.min.css"/>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Open+Sans"/>
+    <link rel="stylesheet" href="https://unpkg.com/bulma@0.8.0/css/bulma.min.css"/>
+    <link rel="stylesheet" href="https://unpkg.com/bulma-prefers-dark"/>
+    <link rel="stylesheet" href="/style/vs2015.css"/>
+    <link rel="stylesheet" type="text/css" href="/style/style.css"/>
+    <script src="/js/highlight.pack.js"></script>
+    <script type="text/javascript">
+      hljs.initHighlightingOnLoad();
+    </script>
+  </head>
+  <body>
+    <section class="hero is-info is-medium is-bold">
+      <div class="hero-body">
+        <div class="container has-text-centered">
+          <h1 class="title">
+            Musings on code
+          </h1>
+        </div>
+      </div>
+    </section>
+    <div class="container">
+      <section class="articles">
+        <div class="column is-10 is-offset-1">
+          <div class="card article">
+            <div class="card-content">
+              <div class="media-content has-text-centered">
+                <p class="title article-title">
+                  <a href="/posts/05-compexp.html">
+                    There is No Magic - Computation Expressions
+                  </a>
+                </p>
+                <p class="subtitle is-6 article-subtitle">
+                  <a href="#">
+                    @laenas
+                  </a>
+                  on 2021-12-27
+                </p>
+              </div>
+              <div class="content article-body">
+                <h2 id="there-is-no-magic">There is No Magic</h2>
+<p>It's my catchphrase, if I were to have one in the technical realm.  There is No Magic.  It's a mantra and a truism and a guiding principle.<br />
+All too often, in a technical context, I see developers behave like primitive man during an eclipse - their dependencies and frameworks and languages, some unassailable force of nature that is beyond the reckoning of mankind.</p>
+<p>The confusion seems to stem from a misjudgment - that something one doesn't understand in the moment must be driven by forces beyond understanding.  It's evil omen thinking.  But we're developers, our core skill is problem solving, and yet we don't always reach for it in the moment.  We perhaps get too focused on the goal, or on our own lack of knowledge, and leave that skill behind.  We don't break it down, we don't do the analysis, we don't trust ourselves.</p>
+<p>Let's start changing that.</p>
+<h2 id="computation-expressions">Computation Expressions</h2>
+<p>One of the features that makes F# super neat, but also confuses the hell out of newcomers to the language, is Computation Expressions.  In some cases we'll see them called <code>workflows</code> or <code>builders</code> - for reasons we'll end up at later.</p>
+<p>We tend to be first introduced to them via F#'s core <code>async</code> and <code>task</code> workflows, as it's the strongly preferred way to work with asynchronous operations in F#.  A direct example being a workflow for making an HTTP request using the standard .NET <code>HttpClient</code>:</p>
+<pre><code class="language-fs">let httpGet (url:string) = task {
+    use http = new HttpClient()
+    let! response = http.GetAsync(url)
+    return! response.Content.ReadAsStringAsync()
+}
+</code></pre>
+<p>There are two clues that we are working with a Computation Expression - the first is the combination of an identifier: <code>task</code> being followed by a block of curly-braced code;  the second is that block containing <code>!</code> versions of familiar terms:  <code>let!</code> for example.</p>
+<p>Regardless, we can all read this code, and broadly understand what it's doing.  Especially if we're familiar with languages that do similar things with <code>await</code> as an inline keyword construct.  We have asynchronous operations like <code>GetAsync</code> and something here is doing something to wait for them to finish before moving onwards to the next step in the code;  but also in a non-blocking way.  And we'd be correct in that assumption.</p>
+<p>But then we're going to stumble across a custom Computation Expression:</p>
+<pre><code class="language-fs">let unsafeAsyncOperation x = asyncResult {
+    let! step1 = doUnsafeThing x
+    let step2 = thenSomething step1
+
+    return getResult step1 step2
+}
+</code></pre>
+<p>And we try to modify it by adding a third step, using that previous HTTP workflow:</p>
+<pre><code class="language-fs">let unsafeAsyncOperation x = asyncResult {
+    let! step1 = doUnsafeThing x
+    let step2 = thenSomething step1
+    let! step3 = httpGet &quot;http://laenas.github.io&quot;
+
+    return getResult step1 step2
+}
+</code></pre>
+<p>The compiler suddenly complains, it wants an <code>Async&lt;'a&gt;</code> but we're giving it a <code>Task&lt;string&gt;</code>.
+And this is one, but not the only, place where people seem to get conceptually stuck.  What is going on, why doesn't it just work?  They enter a spiral of removing the <code>!</code>s, which causes even more arcane compiler errors, or adding them to other places - to the same effect.  The panic sets in, we retreat from our place of logic and principle, and resort to just throwing keypresses at the problem, hoping something will just compile.</p>
+<p>We can work with CEs like this, but we can work with them more effectively - especially with regards to building our own - if we understand their machinery.  <a href="https://docs.microsoft.com/en-us/dotnet/fsharp/language-reference/computation-expressions">MSDN</a> has documentation covering much of this, but I think it skips (rightfully) a more foundational step to thinking about the sugaring the compiler applies to Computation Expressions.</p>
+<h2 id="back-to-the-beginning">Back to the Beginning</h2>
+<p>The F# language(and compiler) is <em>constantly</em> sugaring things for us, in ways that we forget about - especially if we haven't been with the language since its birth - or don't have experience with sibling languages.</p>
+<p>One direct example being functions - the mathematical-theoretical underpinnings of F# (and functional programming more generally) are based in the mathematical concept of functions - mappings from some single input value to some output value.  The key point there is single input, even if that single input is a structure like a tuple or a list, it is still logically a single input.  When we write functions with multiple parameters - what we're 'actually' doing is writing a chain of single-input functions that produce single-input functions:</p>
+<pre><code class="language-fs">let f x y = x &gt;&gt;&gt; y
+//Is conceptually equivalent to
+let g x = (fun y -&gt; x &gt;&gt;&gt; y)
+</code></pre>
+<p>We don't have to think about this with F# - we can do the more natural thing by just listing all parameters and, if anything, we end up needing to learn from a different direction the nature of partial application that aligns with this form.  The language has our backs, without sacrificing the foundational concept at play.</p>
+<p>In another slightly more dated example, F# has - though not used often - a so-called verbose syntax.  One notable feature of it is it's use of the keyword <code>in</code>:</p>
+<pre><code class="language-fs">let x = 1 in
+let y = 2 in
+x + y
+</code></pre>
+<p>I draw attention to it because it poses a curious question:  Why <code>in</code>?  What about that order of operations puts <code>x</code> &quot;in&quot; the code that follows?  And herein lies a curious link between this and the previous point - If F# is ostensibly grounded in mathematics - input/output functions - then where is the <em>function</em> in that snippet?  With experience elsewhere, we might casually shrug this question off as wordplay, but it's got a curious, subtle power.  Those three lines might reside inside a function, certainly, but there is still no function amongst them.  (let us disregard the operator, dear reader)</p>
+<p>We can rewrite that snippet in a more conceptually pure way as follows:</p>
+<pre><code class="language-fs">1 |&gt; (fun x -&gt; 
+  2 |&gt; (fun y -&gt;
+    x + y
+  )
+)
+</code></pre>
+<p>It looks weird, and isn't going to pass for day to day code, but it's logically what's happening.  The value we bind to <code>x</code> becoming an 'external' value that gets pushed into a function whereby <code>x</code> is the input binding name and the rest of the code being the body of that function.  Allowing us to write it the other way not only helps reduce the burden of increasingly arrowed code, but also structures it in ways that are more familiar and similar to other languages.</p>
+<p>This is all well and good, it's curious, but how does it help us demystify Computation Expressions?  We have one more brief detour to make.</p>
+<h2 id="the-other-bind">The other Bind</h2>
+<p>It likely seems as a curiosity that when talking about code like <code>let x = 1</code> we refer to them as bindings.  That we have bound a value to a name.  As we see above, there's a logic to it.  But we are also familiar with the same word being used in module functions: <code>Option.bind</code>, for example.  How this fits together is another, important, part of the overall picture we are attempting to assemble.  When we see code such as this:</p>
+<pre><code class="language-fs">
+Some 1
+|&gt; Option.bind (fun x -&gt; Some (x + 2))
+</code></pre>
+<p>It's visible that we are binding the contextual value and assigning a name to it in the function that follows.  In this case, <code>x</code> is <code>1</code> and <code>Option.bind</code> is just acting as a removal of the boilerplate code of matching the input value and in the <code>Some</code> case, applying the value, and in the <code>None</code> case, continuing onwards.</p>
+<p>There's a parallel here:</p>
+<pre><code class="language-fs">Some 1
+|&gt; Option.bind (fun x -&gt;
+  Some 2 
+  |&gt; Option.bind (fun y -&gt;
+    Some (x + y)
+  )
+)
+</code></pre>
+<p>There's that arrow again - the same as above, except that we're now dealing with <code>Option</code> values, rather than primitives.  And this code is entirely reasonable.  Your codebase is probably filled with situations where you will have chains of functions following this pattern.  It's entirely predictable and normal.  But it's <strong>the same arrow</strong> and wouldn't it be nice if we could flatten it, in the same way that we can with primitive types.</p>
+<p>Enter Computation Expressions.</p>
+<p>F# doesn't ship with one for <code>Option</code> - and from a practicality standpoint it seems like overhead, since <code>Option</code> tends to be relatively short-lived in the context of workflows - either getting defaulted or converted to a richer type like <code>Result</code> in short order.  But that doesn't mean we can't make one.</p>
+<h2 id="what-makes-it-tick">What makes it tick</h2>
+<p>Computation Expressions are based on creating a type - generally called a <code>Builder</code> - that implements by convention <a href="https://docs.microsoft.com/en-us/dotnet/fsharp/language-reference/computation-expressions">some combination</a> of methods of specific known signatures.  And while that page may seem unassailable to begin with, we can demystify it by looking at our own use case and its implementation.</p>
+<p>The <code>let!</code> keyword, for example, requires a <code>Bind</code> method to be present, and in the table we can see it expects a signature of <code>M&lt;'T&gt; * ('T -&gt; M&lt;'U&gt;) -&gt; M&lt;'U&gt;</code> - and it initially looks frightening, just a soup of letters.  But we can quickly make sense of it by substituting in our specific example: <code>Option&lt;'T&gt; * ('T -&gt; Option&lt;'U&gt;) -&gt; Option&lt;'U&gt;</code> and that's much more understandable!  Indeed, while it's using tupled params, it's clearly just <code>Option.bind</code>!</p>
+<pre><code class="language-fs">type MaybeBuilder() =
+  member _.Bind(x,f) = Option.bind f x
+
+let maybe = MaybeBuilder()
+
+let flat = maybe {
+  let! x = Some 1
+  let! y = Some 2
+}
+</code></pre>
+<p>Note here that the term <code>Maybe</code> comes up in this(and all other similar examples) both because it's a friendly alternate name for <code>Option</code> - but also because the CE style keyword - <code>option</code> is already used as a postfix type notation, so <code>maybe</code> keeps it simple.</p>
+<p>Along with that, a note of the curiosity:  <code>maybe</code> is just an alias for an instance of our Builder type.  There's no magic here either - and indeed the consistency remains - you can use the full class name as well (but why would you?):</p>
+<pre><code class="language-fs">let flat = MaybeBuilder() {
+  let! x = Some 1
+  let! y = Some 2
+}
+</code></pre>
+<p>But we haven't finished yet, our arrow isn't entirely flattened, we still need the sum of these two values.  To do so, we just need to add support for the <code>return</code> keyword, via the <code>Return</code> method (<code>'T -&gt; M&lt;'T&gt;</code>).  We can logic this one out:  If I give you a value, then clearly you have <code>Some</code> value, and that's what we want <code>Return</code> to do:</p>
+<pre><code class="language-fs">type MaybeBuilder() =
+  member _.Bind(x,f) = Option.bind f x
+  member _.Return(x) = Some x
+
+let maybe = MaybeBuilder()
+
+let flat = maybe {
+  let! x = Some 1
+  let! y = Some 2
+
+  return x + y
+}
+</code></pre>
+<p>And thus, we've flattened the arrow.  It's all still just that chain of function calls under the hood, but it looks like it isn't.  It's easier to read, it doesn't arrow, and we can ignore some of the complexities.</p>
+<h2 id="and-thus-armed-with-this-knowledge">And thus armed with this knowledge...</h2>
+<p>Let's return to our earlier example:</p>
+<pre><code class="language-fs">let unsafeAsyncOperation x = asyncResult {
+    let! step1 = doUnsafeThing x
+    let step2 = thenSomething step1
+    let! step3 = httpGet &quot;http://laenas.github.io&quot;
+
+    return getResult step1 step2
+}
+</code></pre>
+<p>Where our compiler was complaining about wanting an Async, getting a Task, all that good stuff.  With what we now know, can we puzzle out a reasoning to that error, and in doing so, a solution?</p>
+<p>We first need to think about what it is that the CE is doing, with all that binding.  We might be inclined to handwave it away as some sort of magic, we've learned the incantation, we're good to go.  But it's important for us to connect the dots, to think it through, and see the bigger picture for what it is.  Let's do so by looking at the CE in the above example:  <code>asyncResult</code> - we don't need to know the exact implementation - can be inferred to work with the type <code>Async&lt;Result&lt;'T&gt;&gt;</code> - but something very curious is happening here, at the head of which we might ask the question:  Why not just use <code>async {}</code>?  And the answer can be drafted quickly enough:</p>
+<pre><code class="language-fs">let asyncResultX : Async&lt;Result&lt;int,unit&gt;&gt; = async {return (Ok 1)}
+let asyncResultY : Async&lt;Result&lt;int,unit&gt;&gt; = async {return (Ok 2)}
+
+let func = async {
+  let! x = asyncResultX
+  let! y = asyncResultY
+
+  return x + y //ERROR
+}
+</code></pre>
+<p>We get an error here because you cannot directly add, with the <code>+</code> infix operator, two <code>Result</code>s.  They themselves would need to be bound. So how can something like <code>asyncResult {}</code> get around this?</p>
+<p>Consider how CE's work:  <code>let!</code> is not magically, presciently, stripping away the context of <code>Async</code> or <code>Option</code> - nor is it automatically calling to <code>Option.bind</code> - the builder type is something in our control, and the compiler desugars <code>let!</code> into a call to our <code>Bind</code> method.  It's all in the control of the developer of the CE!  And since code is just code, we can do what we need.</p>
+<p>How can <code>asyncResult {}</code> allow you to <code>let!</code> bind <code>Async&lt;Result&lt;&gt;&gt;</code> to get at the inner value?  Well, it might look something like this:</p>
+<pre><code class="language-fs">//snip
+member _.Bind(x,f) = async {
+  match! x with
+  | Ok x'' -&gt; return! f x''
+  | Error _ -&gt; return! x }
+</code></pre>
+<p>We use an <code>async</code> CE to let us <code>match!</code> (bind, then match on the inner value) and that lets us unwrap the <code>Result</code> to get at the innermost value to pass it to our continuation function.  As an aside, <code>return!</code> does exactly what you'd expect from a <code>!</code> - it binds and then returns.  Since our continuation function by necessity must return an <code>AsyncResult</code> - if we were to <code>return</code> from the <code>async {}</code> we would have an <code>Async&lt;Async&lt;Result&lt;&gt;&gt;&gt;</code>.</p>
+<p>The key here is to recognize that since it's all just code, it's possible to tweak and adjust this code to suit our use cases.  We're able to create CEs for composed cases like <code>AsyncResult</code> - just as we could do so for <code>AsyncOption</code> - what would that look like?  Give it a shot!  But I draw upon the greater impression:  it's all just code, and we can customize it in other ways as well, using our foundational principles!</p>
+<p>Let's return to our <code>maybe {}</code> builder.  Let's watch it in motion!</p>
+<pre><code class="language-fs">type MaybeBuilder(format) =
+  member _.Bind(x,f) = 
+    printfn format x
+    Option.bind f x
+  member _.Return(x) = Some x
+
+let maybe format = MaybeBuilder(format)
+
+let flat = maybe &quot;--binding: %A&quot; {
+  let! x = Some 1
+  let! y = Some 2
+
+  return x + y
+}
+</code></pre>
+<p>Take a moment and consider the somewhat unexpected composition here, don't just understand <em>what</em> it is doing, but <em>how</em> it is possible to combine things in this manner.  The tool here isn't the pattern of how to debug print in a builder - it's how you can <em>customize</em> a builder, and therefore a CE; from 'outside' the CE itself, as a consumer of it.</p>
+<p><code>MaybeBuilder()</code> isn't magic, it's just a class type, and like any other class type it can have constructor parameters that it uses elsewhere in its internal logic.</p>
+<p><code>maybe</code> isn't magic, it's just a binding, and we've simply changed it from a value binding to a function that is parameterized.</p>
+<p>And now our CE prints out the incoming binding values when our <code>Bind</code> method is called.</p>
+<p>What other compositional logic can you, reader, envision being useful and interesting to add to a CE?</p>
+<h2 id="and-thus-our-solution">And thus, our solution</h2>
+<p>We return, finally, to that initial error.  Confused as we were when the compiler barked about type mismatches, and we wrestled with exclamation points, do we see it more clearly now?</p>
+<p>Inside our hypothetical <code>asyncResult {}</code> we've attempted to bind a <code>Task</code> - perhaps even a <code>Task&lt;Result&lt;&gt;&gt;</code>!  But what the compiler is hinting towards is that the builder for our CE doesn't operate against that type.  A conclusion forms:  We need to turn our <code>Task</code> into an <code>Async</code> - and thus a call to <code>Async.AwaitTask</code> resolves our problem.</p>
+<p>When we see our own code arrowing rightwards across the indents, we might be able to stop and consider building our own CE, to not only improve readability, but declutter and reduce opportunities for error and confusion when handling increasingly nested functions.</p>
+<p>There's a lot more to be said about CEs, and perhaps in the future the topic can be revisited, but in this instance they're a proxy, a show pony, for the greater lesson I'm trying to deliver:  There Is No Magic.  Everything makes sense, and when faced with the strange, the unknown, the confusing, or the magical - we should use those impressions as a clue to ourselves to strap in and analyze the problem.</p>
+<p>It'll save you a lot of time in the long run.</p>
+
+              </div>
+            </div>
+          </div>
+          <div class="card article">
+            <div class="card-content">
+              <div class="media-content has-text-centered">
+                <p class="title article-title">
+                  <a href="/posts/04-functions-are-values.html">
+                    Functions.  Just functions.
+                  </a>
+                </p>
+                <p class="subtitle is-6 article-subtitle">
+                  <a href="#">
+                    @laenas
+                  </a>
+                  on 2021-03-20
+                </p>
+              </div>
+              <div class="content article-body">
+                <h2 id="three-words">Three words</h2>
+<p>If there's one thing, one rule, that I hope to get across in this pile of words, it's that <em><strong>functions are values</strong></em>.</p>
+<p>Functions.
+Are.
+Values.</p>
+<p>These three words are a key principle that unlock a door to a different way of solving problems, an important and significant step in solving problems and writing simpler, more functional code.  But there often seems to be a divide between being able to strictly read this - which everyone gets;  the ability to use it when presented with an API expecting it - something I think most developers these days do, even if they don't realize it;  and the ability to <em>wield</em> the idea to design our own code with this concept in mind.  The pause appears to occur most severely on that latter step - as though standing on the bridge over the chasm has given pause and a wondering which side is closer.  Let's help cross that bridge, as to better add another tool to our bags.</p>
+<h2 id="a-value-or-a-name">A value or a name</h2>
+<p>What do we mean when we say 'functions are values'?  Let's attack this as specifically as possible, and ensure that we've defined our terms.<br />
+First:  <code>values</code>.  Every developer understands values, as they're so critical to our work that to need to define or think about it, is like trying to be conscious about the act of breathing.</p>
+<pre><code class="language-fs">let x = 3
+let y = &quot;foo&quot;
+let z = [9;8;7]
+</code></pre>
+<p>Here, we have some values.  <code>x</code> is an <code>int</code> with a value of <code>3</code>.  And so on.  <strong>Left hand side is a name, right hand side is the value.</strong></p>
+<p>These also mean that there is referential equivalence between using the name and the value itself.  In the above, anywhere I can use the raw value <code>3</code>, I can now use <code>x</code> and achieve the same result.</p>
+<p>Then: <code>functions</code>.  Every developer understands functions, they're also fundamental to our work, regardless of language or paradigm.  They allow us to name and capture a subset of our code in such a way that we can both split up our program textually, but also reuse parts of the code from multiple places.  Functions have <em>one</em> defining characteristic:  They take some values as arguments and produce some other value as a result.</p>
+<pre><code class="language-fs">let double x = x * 2
+let add x y = x + y
+</code></pre>
+<p>We have a few arithmatic functions:  <code>double</code> takes a single argument and multiplies it by two.  <code>add</code> takes two arguments and sums them.  We're all perfectly familiar with this:  functions taking values and producing values.</p>
+<h2 id="left-hand-side-name">Left hand side: name.</h2>
+<p>We're all used to declaring functions.  We're all used to calling them.  And in what seems to be most language these days, we're even comfortable using them as arguments:</p>
+<pre><code class="language-fs">[1;2;3]
+|&gt; List.map (fun i -&gt; i * 2) //[2;4;6]
+</code></pre>
+<p>This sort of lambda syntax comes naturally once you've used it for even short while.  I just have to provide a little transformation function and it'll call it with each thing in my list.  Sure, this makes sense.</p>
+<p>But here's the question:  If functions are defined because they take values and produce other values, and <code>List.map</code> is a function, then what are the <strong>values</strong> that we give it as arguments?  Definitely our list of <code>[1;2;3]</code> sure - but...also that lambda.</p>
+<p>Let's rewrite the above, slightly:</p>
+<pre><code class="language-fs">let double x = x * 2
+
+[1;2;3]
+|&gt; List.map double
+</code></pre>
+<p>See it?</p>
+<h2 id="right-hand-side-value">Right hand side: value.</h2>
+<p>A quick recap of points.<br />
+Values can be given a name: <code>let x = 3</code><br />
+And afterwards, we can use either the basic value or the name interchangeably: <code>double x</code> and <code>double 3</code> will both produce the same result.<br />
+Functions take values as arguments to produce new values: <code>let double x = x * 2</code></p>
+<p>And now, with <code>List.map</code> as our go-to example function, we've seen that the mapping function we use can be passed in as either a lambda, or a previously declared and named function.  Repeated with emphasis:  It can be passed in as either <em>a lambda</em>  or <em>a named function</em>.  A value or a name.</p>
+<h2 id="now-the-weeds">Now, the weeds</h2>
+<p>Let's look at the same simple function, but written three separate ways:</p>
+<pre><code class="language-fs">let add x y = x + y
+
+let add x = (fun y -&gt; x + y)
+
+let add = (fun x y -&gt; x + y)
+</code></pre>
+<p>These are all conceptually equivalent - and all can be called identically: <code>add 1 2</code> will produce <code>3</code>.  But it's worth it to pause for a moment and consider the three forms:</p>
+<p>Everyone is familiar with the first form - we declare the name, we name the parameters, and we do something with them.  It's the baseline way of working with functions[1]</p>
+<p>The second form is one that we tend to see while learning F# - oftentimes in examples involving partial application.  But it's here that we also may start feeling a fog set in:  Because we tend to learn, by default, that functions have to return <em>solid</em> things, <em>values</em>, something - for lack of a better word - tangible.  We're used to the concept of something like <code>add</code> giving us a number back.  So there's something a little weird and alien at the idea that this...thing...isn't a number, it's a function.  But it's also here where we probably have that lightbulb moment, at least in part, that 'ok, cool, so I can make lambdas and return them so that they can be called!'.  But that's like learning to walk, without learning to run.</p>
+<p>The third form, and I want to be perfectly crystal clear I sincerely don't advocate for writing functions in this way, I do so solely to unify some examples.  But here we have something that looks more like what we see in all non-function cases in the language - a name on the left, a value on the right.  It lays bare the fact that our function <em>is</em> just 'a lambda' with a name.  Equivalency, the same as <code>let x = 3</code>.</p>
+<h2 id="put-to-good-use">Put to good use</h2>
+<p>While this is trivial - in the case of <code>add</code> - or familiar to a point of acceptance, in the case of <code>List.map</code> - there's something more powerful lurking here that deserves a little bit more attention.  It's the power to dramatically shift the overall flow of an application without needing to dramatically alter the primary flow path of the code.</p>
+<p>Consider an example:  We have an application that will search an <code>InputDir</code> for files with <code>ExtensionSuffix</code> and we'll output whatever work we're doing to some <code>OutputDir</code>.  We also have some defaults.</p>
+<pre><code class="language-fs">type AppConfig = {
+    InputDir: string
+    ExtensionSuffix: string
+    OutputDir: string
+}
+
+let defaultConfig = {
+    InputDir = &quot;./search&quot;
+    ExtensionSuffix = &quot;.log&quot;
+    OutputDir = &quot;./results&quot;
+}
+</code></pre>
+<p>But we want to allow users to override these settings using some form of runtime config.  For the sake of brevity, we'll ignore <em>where</em> this configuration comes from, as well as <em>how</em> it gets parsed.  But we'll assume that what we have to work with is something in the form of:</p>
+<pre><code class="language-fs">type ConfigOption =
+    | InputDir of string
+    | ExtensionSuffix of string
+    | OutputDir of string
+</code></pre>
+<p>And we'll assume these are parsed into a list.</p>
+<p>Now, the first way newcomers to FP will tend to approach such a problem has the air of other languages to it - especially those without first-class functions:</p>
+<pre><code class="language-fs">let configureApp (options: ConfigOption list) =
+    let config = defaultConfig
+
+    let inputDir =
+        options
+        |&gt; List.tryFind (fun opt -&gt; 
+            match opt with
+            | InputDir _ -&gt; true
+            | _ -&gt; false)
+
+    let config = 
+        if Option.isSome inputDir then
+            {config with InputDir = Option.get inputDir}
+        else
+            config
+
+    //Snip - you get the picture    
+</code></pre>
+<p>Do note, none of the above is 'real' code, it's just an off-the-cuff amalgamation of the sort of things that seem to come up rather repeatedly.  And somewhere around here, the question rightfully tends to come up as well: &quot;How can I easily test which case a union type is?&quot;  (Which is generally a smell in its own right.)  As well as having to deal better with the Option that's caused by dealing safely with the list, branching in general - it's painful.  I earnestly think it is likely to push some people away - because in this sense, something like C# <em>looks</em> cleaner - you aren't <em>forced</em> to <code>else</code> the <code>if</code> and can use null-coalescing with LINQ to avoid the Option.  And those feelings will also make us potentially lean towards trying to model all our individual options as their own types - and write helper functions for them - but then we start to recognize the duplication of logic down that road as well.  But what about if we take what we've learned about functions and apply it here, what can we do?</p>
+<pre><code class="language-fs">let configureApp (options: ConfigOption list) =
+    options
+    |&gt; List.map (fun opt -&gt;
+        match opt with
+        | InputDir dir -&gt; (fun cfg -&gt; {cfg with InputDir = dir})
+        | ExtensionSuffix ext -&gt; (fun cfg -&gt; {cfg with ExtensionSuffix = ext})
+        | OutputDir dir -&gt; (fun cfg -&gt; {cfg with OutputDir = dir}))
+    |&gt; List.fold (|&gt;) defaultConfig
+</code></pre>
+<p>What's going on here?  The major difference here is in the recognition of three key details:  First is that our options - conceptually, not in code - just want to update the config;  thinking about this in F#, pretending to write that function itself, we can notice how the shape <code>AppConfig -&gt; AppConfig</code> just feels natural.  Take a config, return an altered config.  Second is that what we're trying to do:  take an <code>AppConfig</code>(our default), apply it to our first function, then take that function's output and apply it to the second, and so forth.  That's pipelining - but since we can't know at compile-time which functions to call we can't just <em>write</em> a pipeline, so we need a way to create a 'dynamic' pipeline.  The third and final piece of the puzzle, that ties the whole thing together, is that <em>functions are values</em> - as we saw above - and so it's possible in the first place to have something like an <code>(AppConfig -&gt; AppConfig) list</code> - a list of <em>functions</em>.  So we have a list of functions that by signature compose themselves, we just need a starting point, and some way to combine them sequentially - and that sure sounds pretty much spot-on for <code>List.fold</code>, doesn't it?</p>
+<p>So we take our list of options.  We transform each one into a function that updates a config - keep in mind that they don't have to be lambdas:  they can be named functions.  It's entirely the same!  But now that we have a list of functions that update a config, we fold them over our default config.  Admittedly, using the <code>|&gt;</code> operator in such a way is a flourish, but it conceptually pairs better with that previous realization that what we want <em>is</em> to pipeline.  We could have used an explicit folder function as well:</p>
+<pre><code class="language-fs">//snip
+|&gt; List.fold (fun cfg optF -&gt; optF cfg) defaultConfig
+</code></pre>
+<p>When people say that F# is a terse language, and packs a lot of power per LOC relative to C#, this is the sort of thing that seems to be the case.  Yes - C# is shorter and nicer when we compare direct, naive solutions - but when you lean into the power of the language, F# starts to be shorter, more expressive, and still somehow more typesafe - the union means we know that all config options get checked, and not needing to do an equivalent of <code>tryFind</code> to figure out if an option exists means we can just directly map whatever we do have and work with it.  And while you can achieve a similar behavior in C# with <code>Func&lt;TConfig,TConfig&gt;</code> and LINQ's <code>Aggregate</code>, both of those will result in much less comprehensible code - to say nothing about the trouble in trying to model the options themselves without a union.</p>
+<h2 id="in-summary">In summary</h2>
+<p>Functions are values and behave similarly to all other values we use in the language.
+The left hand side of a <code>let</code> is a name (and some parameter names, for functions) - and the right hand side is the value (and what we do with those params, for functions)
+This goes from ints to lists to classes to functions.  And in cases where we can deal with more primitive types, we can also have function types themselves:</p>
+<pre><code class="language-fs">//Record fields (though Interfaces can be recommended)
+type FuncRecord = {F: int -&gt; int}
+
+//Union cases
+type FuncUnion = FuncUnion of (int -&gt; int)
+
+//Type argument to generic types
+type FuncList = (int -&gt; int) list
+
+//Tuple members
+type FuncTuple = (int * (int -&gt; int))
+</code></pre>
+<p>And in the same way that we're all familiar that things like LINQ's <code>Select</code> (F#'s <code>map</code>) is more expressive than writing a full <code>foreach</code> or list expression to do the same work - we can also use that same elegance, that same power, in our own code outside the BCL itself.  Because whether they come from the BCL, or our own code, functions are just values.  So let's use them as such!</p>
+
+              </div>
+            </div>
+          </div>
+          <div class="card article">
+            <div class="card-content">
+              <div class="media-content has-text-centered">
+                <p class="title article-title">
+                  <a href="/posts/03-signatures.html">
+                    Reasoning about Signatures
+                  </a>
+                </p>
+                <p class="subtitle is-6 article-subtitle">
+                  <a href="#">
+                    @laenas
+                  </a>
+                  on 2021-03-07
+                </p>
+              </div>
+              <div class="content article-body">
+                <h2 id="i-promise-not-to-talk-about-lego">I promise not to talk about LEGO</h2>
+<p>We've all heard that one before, and I think people might be getting a little tired of it.  (Even if it's a good metaphor)
+But it's undeniable that, in the world of F# (and from my perusing, statically-typed functional programming as a whole), the signatures of things are given an markedly more central role.  Immensely moreso than in our sibling language C#, to use the reliable old point of comparison.  I've reflected upon this a fair bit, recently, and come to the conclusion that it boils down to two primary differences:<br />
+First, foremost, we can actually express them without the patience of a monk and the memory of a pub quiz champion.  Consider the differences between these two equivalent things (and don't worry too much about making sense of either, we'll get there later, this is just a run-on sentence in a run-on introduction):</p>
+<pre><code class="language-fs">('a -&gt; 'b -&gt; 'a) -&gt; 'a -&gt; seq&lt;'b&gt; -&gt; 'a
+</code></pre>
+<pre><code class="language-cs">TAccumulate Aggregate&lt;TSource,TAccumulate&gt; (this System.Collections.Generic.IEnumerable&lt;TSource&gt; source, TAccumulate seed, Func&lt;TAccumulate,TSource,TAccumulate&gt; func)
+</code></pre>
+<p>Second, there's a much stronger compositional inertia in a language like F#; and part of that composition is being able to quickly and easily understand how pieces fit together.  There's a reason why tooling like <a href="https://ionide.io/">Ionide</a> adds signature hints liberally, and FSI prints them for all bindings.</p>
+<p>So let's walk through this together, starting simple, and working upwards.  And each step of the way, let's consider how to reason about what we're doing in a way that will develop our intuition about how to work with unfamiliar code and libraries.</p>
+<h2 id="no-no-not-the-t-word-i-thought-we-werent-going-to-talk-about-the-t-word">No, no, not the T word, I thought we weren't going to talk about the T word</h2>
+<p><em><strong>Types.</strong></em>  Whoo, been holding that in for the entire introduction.<br />
+When we talk about <em>signatures</em>  what we're talking about is <em>types</em> - or, more clearly, a specific <em>subset</em> of types.  The types of functions.  But before I get there, I want to start from the ground up, to make sure we're really clear about the distinction between a <em>Type</em>  and a <em>Value</em> - because that's going to be important to understand before moving on.</p>
+<pre><code class="language-fs">let ten = 10
+</code></pre>
+<p>We have three elements in this snippet:</p>
+<ul>
+<li>A binding name: <code>ten</code></li>
+<li>A value: <code>10</code></li>
+<li>The type of that value, and thereby, of <code>ten</code>:  <code>int</code></li>
+</ul>
+<p>We can phrase this more conversationally as:  <code>ten</code> is an <code>int</code> with a value of <code>10</code>.
+<code>&quot;hello&quot;</code> is a <code>string</code> - <code>'x'</code> is a <code>char</code> - <code>(1,2)</code> is a <code>int * int</code> and <code>()</code> is <code>unit</code></p>
+<p>That last point is one to linger on for just a moment:
+<code>()</code> is a <em>value</em> of the type <code>unit</code> - a type that has only that one value.  There are no magic <code>void</code>s in the F# type system, everything has a clearly defined type and value.</p>
+<p>This rule has two implications, beyond the simple values above, which I suspect everyone can reason easily about.</p>
+<p>The first is with regards to generics:</p>
+<pre><code class="language-fs">let abc = ['a';'b';'c']
+</code></pre>
+<p><code>abc</code> is a <code>char list</code> - or put another way - a <code>List&lt;char&gt;</code> and the type parameter there is important.  Because you can also have <code>List&lt;int&gt;</code> or <code>List&lt;string&gt;</code> - but they all behave the same, they are all, fundamentally, a list.  Or, to wit, <code>'a list</code>.  Because in F# we denote type parameters for our generic types as <code>'a</code> and <code>'b</code> and <code>'anyNameReally</code> and so forth.  It just needs to start with that tick.</p>
+<p>The second is with regards to functions:</p>
+<pre><code class="language-fs">let addOne i = i + 1
+</code></pre>
+<p><code>addOne</code> is a <code>int -&gt; int</code>.  The <code>-&gt;</code> notation in F# indicates a function.  The final type in the signature is the output type of the function, the rest are the parameters that are sent as input to the function.  So in this case, exactly as we see in the code - we want one input (an <code>int</code>) and from that the function will produce an output (an <code>int</code>).</p>
+<h2 id="thinking-our-way-through-the-basics">Thinking our way through the basics</h2>
+<p>So we have looked at simple values.  They have types.  Probably not much confusion there.
+And when dealing with generic types, like <code>list</code>, we can have types that generically operate on other types, their values dependent on that other type.
+And with functions, they have types - signatures - also.</p>
+<p>But stop and read that through again.  There's a logical association at play.<br />
+Values have types.  <code>2</code> is an <code>int</code>
+Generic values have types.  <code>[|1;2;3|]</code> is an <code>int array</code>
+And functions have types.  But where did the <em>value</em>  in that statement go?  What is the <em>value</em> of a function?</p>
+<p>It's not its output.  Its not its binding name.  It is <em><strong>the function itself</strong></em></p>
+<p>Consider for a moment how we think about values and types otherwise:  Consider <code>3</code>.  What can we say about it?  It's an <code>int</code>, yes.  It's value is <em>three</em> - as in the natural number.  But we can't necessarily <em>do</em> much with just <code>3</code>.  It's a fine value, but it's just a single value.  Consider <code>&quot;shanty town faded sub-orbital city range-rover rain singularity artisanal modem&quot;</code> - it's a <a href="http://loremgibson.com/">fine string</a>, but do we <em>really</em> want to pass that around everywhere we might need it?  Nope, so we <em>bind</em> it to a name that's easier to work with:</p>
+<pre><code class="language-fs">let lorem = &quot;shanty town faded sub-orbital city range-rover rain singularity artisanal modem&quot;
+</code></pre>
+<p>And we can now use these interchangeably, because for all intents and purposes, they are the same thing.  We put the name beside <code>let</code> and then a value after the <code>=</code> and now we have associative equivalence.</p>
+<p>So when we look at a function like this:</p>
+<pre><code class="language-fs">let addOne i = i + 1
+</code></pre>
+<p>We can say that <code>addOne</code> has the signature <code>int -&gt; int</code>.  But the <em><strong>value</strong></em> of it is the entire function itself - more easily seen (but please don't write it this way in day-to-day code) by simply our writing our function more like every other value we work with:</p>
+<pre><code class="language-fs">let addOne = (fun i -&gt; i + 1)
+</code></pre>
+<p>Pause there.  Both of those <code>addOne</code> declarations are functionally equivalent.  Both can be called by simply doing <code>addOne 1</code> (producing <code>2</code>).  And this is because - and this is critical for folks not used to functional programming:  <em><strong>Functions Are Values</strong></em></p>
+<p>Ok one more time, because this is going to get very important very soon.</p>
+<p>Functions are values.  They can be bound to a name (often are!) but they can also be used in their 'value' form - generally just called a lambda(as in other languages as well).</p>
+<p>In exactly the same way that we can assign the value <code>3</code> to a name, and then use either interchangeably, we can do the same with functions.</p>
+<h2 id="higher-order-readership">Higher order readership</h2>
+<p>So to briefly recap:
+All values have a type, and can be bound to a name.
+Functions are values, and by previous definition, have a type signature.
+That signature is a definition that describes the input(s) and output by type.
+We can call that function, to produce a new value, by sending values as input(s).</p>
+<p>There's a logical loop in our definitions there.  If you aren't already familiar with it, I strongly encourage thinking about it.  Functions are values and functions take values to produce new values.  This means, very simply, that functions can accept <em>other functions</em> as arguments.  When you see the term 'higher order functions' this is (part) of what that means.</p>
+<p>Let's build one for ourselves!</p>
+<pre><code class="language-fs">let transformInt i (f: int -&gt; int) = f i
+</code></pre>
+<p>Surprisingly simple, right?  The type of <code>transformInt</code> is <code>int -&gt; (int -&gt; int) -&gt; int</code> - note the parenthesis there that distinguish the second parameter as a function, as compared to an <code>int -&gt; int -&gt; int -&gt; int</code> which is a function taking 3 <code>int</code> arguments.  Depending on your experience, this can be a <em>significant</em> insight, and may not settle immediately.  Make a cup of coffee, think about it, consider any problems you've worked on that perhaps may have benefitted from being able to change the behavior of a function by using a function parameter.</p>
+<p>The subtlety here is that <em>any</em> function of the form <code>int -&gt; int</code> can be used here.  And we can use their values directly, as well!</p>
+<pre><code class="language-fs">let transformInt i (f: int -&gt; int) = f i
+let addOne i = i + 1
+transformInt 2 addOne //produces '3'
+
+transformInt 3 (fun i -&gt; i - 2) //produces '1'
+</code></pre>
+<h2 id="reasoning-about-signatures">Reasoning about Signatures</h2>
+<p>Hey, that's the title of the article!</p>
+<p>So we know now what signatures are, and how to read them.  But that's trivia, right?  I mean, we still need to stare at a mountain of documentation to understand what they do, don't we?  While partially true, and while samples are always helpful, understanding how to reduce unfamiliar code to raw signatures - combined with helpful names on the functions themselves - is a powerful tool to help every developer.  Especially in a non-top-5 language like F#, not every library is documented to the gills and with rich samples for every use case.  Indeed, several times a week there are people in the various F# communities asking How-To questions about libraries that have reasonable documentation, but simply lack fully-featured sample code.  Understanding how to sift through the signatures in a library - either in API documentation or via Intellisense - leads to rapid productivity gains.</p>
+<p>But how do we do it?  Well, the primary trouble seems to be around generics.  When we talk about an <code>int -&gt; int</code> there's something easy to grasp - give an <code>int</code>, get an <code>int</code>.  Even when we have different inputs and outputs: <code>int -&gt; char -&gt; string</code> gives us something I think we can reason about easily.  But I suspect something starts to short circuit for a lot of people when we move to a signature that looks like <code>('a -&gt; 'b) -&gt; ('b -&gt; 'c) -&gt; 'a -&gt; 'c</code></p>
+<p>That looks <em>indecipherable</em>  at first.  And oftentimes our first instinct internally when faced with something like that is just to throw up our hands, panic, shut down, and just decide it's too much.  But hold yourself steady for a minute, because we're going to apply our thinking powers and we are going to conquer this!</p>
+<p>As with any problem, let's start small.</p>
+<p><code>'a</code></p>
+<p>We know this is a generic, but unlike the ones we've seen previously it's not attached to anything.  There's no <code>list</code> or <code>option</code>.  It's entirely alone.  So in that sense, it can be...anything.  Any type whatsoever.  Let's just scribble in something simple, to help ourselves think.  And remember, we're using <em>types</em>  and not <em>values</em> right now.  A forewarning:  this is about helping that panic to subside, and introduces a fatal logical flaw to our reasoning, that we'll need to remove later by going back to the generic signature, but for now, let's get our mind right.</p>
+<p><code>(int -&gt; 'b) -&gt; ('b -&gt; 'c) -&gt; int -&gt; 'c</code></p>
+<p>Ok, one thing down.  Now it's the same problem again.  Let's choose another type for <code>'b</code>, just to mix things up.</p>
+<p><code>(int -&gt; string) -&gt; (string -&gt; 'c) -&gt; int -&gt; 'c</code></p>
+<p>And, once more, for completeness:</p>
+<p><code>(int -&gt; string) -&gt; (string -&gt; char array) -&gt; int -&gt; char array</code>
+<code>('a -&gt; 'b) -&gt; ('b -&gt; 'c) -&gt; 'a -&gt; 'c</code></p>
+<p>There they are, side-by-side.  And while the top one feels a little more approachable, filling in the types like that is just a means to reason a little bit more about what a function like this is doing.  Don't forget that those types are chosen arbitrarily and could be anything!</p>
+<p>Now, with things simplified for the sake of understanding, we can continue methodically and logically thinking about this function.</p>
+<p>We know that it has three parameters:
+<code>(int -&gt; string)</code> and <code>(string -&gt; char array)</code> and <code>int</code>
+And that it produces a <code>char array</code></p>
+<p>We can tell that the first two parameters are functions.  This can lead us, through logic, to a conclusion that this function on the whole must be reasonably simple - because if it's taking functions as parameters, then it is altering its behavior based on those functions, rather than holding the logic itself.  There's a hypothetically large number of ways that a function like <code>int -&gt; string</code> can be implemented, and so by taking that signature as a parameter, we can't know which one is going to be used.  Or, put another way, we've declared with this overall signature that <em>any</em> <code>int -&gt; string</code> function will do.  That's a wide net to cast, and we can work backwards from it to our conclusion that there must not be 'very much' concrete logic happening in this function.</p>
+<p>The other logical conclusion we can draw is that because of that abstracted behavior, there must be some relationship between the parameters.  Since we're taking in a function, we're probably intending to call it somehow, and in the case of <code>int -&gt; string</code> that means we are going to need an <code>int</code>.  We can find it as the third parameter - which logic demands must be used as an input to the first parameter.</p>
+<p>Wait.  That's wrong.  There could be a hardcoded <code>int</code> inside the function that is used.  And here's the fatal flaw in thinking about generic signatures from the standpoint of concrete types:</p>
+<p><code>(int -&gt; string) -&gt; (string -&gt; char array) -&gt; int -&gt; char array</code> can have unknown, hard-coded behavior that we can't make strong logical assumptions about.
+<code>('a -&gt; 'b) -&gt; ('b -&gt; 'c) -&gt; 'a -&gt; 'c</code> cannot.  You cannot write a function that holds this signature and hides away a (meaningful) hardcoded <code>'a</code> to be used with the function parameters because you can't know what the type of <code>'a</code> might be.  It's this very logic that lets us presume that the <code>'a</code> used as a parameter is used as input to the <code>'a -&gt; 'b</code></p>
+<p>So we can see that there's a strong association between the first and third parameters, and as we scan over the rest of the signature, we can draw some other logical conclusions:  Our second parameter is a <code>'b -&gt; 'c</code> which means we need to get a <code>'b</code> from somewhere.  Unlike our <code>'a</code> - there isn't one sent into our function alone.  But from the signature itself we see one is the output of the first parameter.  So it's reasonable to conclude that the output of the <code>'a -&gt; 'b</code> is used as input to <code>'b -&gt; 'c</code>.</p>
+<p>And then our final output, a <code>'c</code> is produced by our function, and that's also the output of the second parameter.  So that makes sense.</p>
+<p>So what can we reason out about this function's behavior solely from its signature?
+<code>'a</code> is passed into the <code>('a -&gt; 'b)</code> to give us a <code>'b</code>.  That <code>'b</code> is passed into the <code>('b -&gt; 'c)</code> to give us a <code>'c</code>.  And that <code>'c</code> is the output of this very function.</p>
+<p><code>('a -&gt; 'b) -&gt; ('b -&gt; 'c) -&gt; 'a -&gt; 'c</code> is the signature of function composition - present in F# via the <code>&gt;&gt;</code> operator.</p>
+<p>Stop and take a moment to reflect on what we've just done.  Imagine looking at <code>&gt;&gt;</code> in your IDE and seeing that signature and just...gasping.  But we've walked through it, step by step, and made sense of exactly what it's doing.  That's huge!  We've done it without needing to see examples of it being used.  We've done it without needing to reach for reliable old metaphors about Danish plastic.  Well done!</p>
+<h2 id="once-more-with-less-flourish">Once more, with less flourish.</h2>
+<p>There's an awkward flaw in written tuition like this - I'm victim to it as often as you.  It's so easy to <em>read</em> something, especially when it is in a teaching pace and tone, and feel very good about understanding it, but then walk away not really able to apply that knowledge.  Part of that, I think, is that so many of these sort of articles in development tend to make their point once and move on, understanding assured.  Instead, I want to walk through approaching signatures using reasoning with you here, with slightly less boilerplate, to show how this isn't about a single magical <code>&gt;&gt;</code> operator - but that it works universally and really can be applied.</p>
+<p>Up at the start, we glanced at this one:
+<code>('a -&gt; 'b -&gt; 'a) -&gt; 'a -&gt; seq&lt;'b&gt; -&gt; 'a</code></p>
+<p>Uff!  It's a weird one!  But is it really?  Our parameterized function uses an <code>'a</code> and a <code>'b</code> to produce an <code>'a</code>.  We once again see that we send in a <code>'a</code> as another parameter.  So let's use the same logic - that it's used as input to that function.  We also take in a <code>seq&lt;'b&gt;</code> and that <code>'b</code> matches our function...but not the <code>seq</code>.  It's notable that there's no other <code>seq</code> in the signature.  So we take in this collection of <code>'b</code> values but we don't use them with our function, nor do we output a <code>seq</code>.  Logic leads us to consider that we must be iterating over all the values in that <code>seq</code> - because if we were using only a single value, then this function would be better stated as <code>('a -&gt; 'b -&gt; 'a) -&gt; 'a -&gt; 'b -&gt; 'a</code> (itself nonsensical, since we could just call the function parameter directly);  and if we wanted some subset of values from the <code>seq</code> - then we'd still be handling a <code>seq</code> and so the matter of selecting a subset would be better handled in its own function (or in yet another function-as-parameter that somehow indicated how many to use, like an <code>int</code> or a <code>'a -&gt; bool</code>).  We can also explore the idea that we keep using our single <code>'a</code> with each <code>'b</code> in the function...but that would give us a <code>seq&lt;'a&gt;</code>, which doesn't match our output, either.  So we can break it down:  We call our function with our <code>'a</code> parameter and the first <code>'b</code> and that gives us...an <code>'a</code> - which we can use with the second <code>'b</code> to get an <code>'a</code>.  Once we're out of <code>'b</code> then we would be left with just the last <code>'a</code>.</p>
+<p>And that's <strong>exactly</strong> what this function does.  <code>Seq.fold</code> (which has siblings in <code>List</code> and <code>Array</code>, amongst others).  We've sussed out the behavior without seeing the code in action, or even the (very helpful) documentation about it.</p>
+<p>Here's one that I have, prior to this, never actually used - just to level the playing field.</p>
+<p><code>Seq.scan</code> has a signature of <code>('a -&gt; 'b -&gt; 'a) -&gt; 'a -&gt; seq&lt;'b&gt; -&gt; seq&lt;'a&gt;</code></p>
+<p>That panic I mentioned earlier?  Yeah, I just felt a rush of it.  But almost all our logic from up above still stands, up until the very end.  That's helpful.  Instead of a single <code>'a</code> we have a <code>seq&lt;'a&gt;</code>.  Wait, with <code>fold</code>, we had reasoned that the <code>'a</code> parameter must be used to bootstrap the chaining of our function, since we didn't get a <code>seq&lt;'a&gt;</code> on the output.  But now we do.  Does that mean it's what it does?  Well no, that's flawed.  If we had a <code>seq&lt;'b&gt;</code> that we wanted to transform into a <code>seq&lt;'a&gt;</code> then we would just use <code>Seq.map</code> (<code>(('a -&gt; 'b) -&gt; seq&lt;'a&gt; -&gt; seq&lt;'b&gt;</code>) - so this must be doing something else.  The other significant logical thing it could be doing is collecting all the output <code>'a</code> from the function we pass in.  And sure enough, that's <em>precisely</em> what it does.</p>
+<h2 id="more-than-just-a-neat-trick">More than just a neat trick</h2>
+<p>None of this is to say that there is <em>infallibility</em> or that a signature can tell you <em>everything</em>.  <code>Seq.foldBack</code> is <code>('a -&gt; 'b -&gt; 'b) -&gt; seq&lt;'a&gt; -&gt; 'b -&gt; 'b</code> - and without the hint in the name - or in the documentation - the signature alone doesn't clue you into the fact that it's operating from the end of the collection instead of the front.  (Even though the raw behavior we reasoned out is correct).</p>
+<p>But when we look at the F# ecosystem, there's a strong sense in projects and libraries that this sort of thing is implicitly understood.  We talk a lot about the signatures of functions, because in so little text it can communicate so much.  A relatively comprehensive amount of API Reference documentation - with modules, function names, and their signatures - but much smaller amounts of sample code covering all the possible functions and how to call them and use them.  We, as developers, can bridge that divide by learning skills such as this in order to empower ourselves.  These sorts of things need not remain mysteries, or esoteric corners we avoid until illuminated by some other hand.</p>
+<p>Let us use our own reasoning faculties to illuminate these dark corners.  Let us realize that we are already capable of understanding and working through the code before us.  We just need, sometimes, to sit down and consider it step by logical step.  But we'll come back to that in a later article.</p>
+
+              </div>
+            </div>
+          </div>
+          <div class="card article">
+            <div class="card-content">
+              <div class="media-content has-text-centered">
+                <p class="title article-title">
+                  <a href="/posts/02-unions-classes-cases.html">
+                    Unions, Cases, and Types (oh my)
+                  </a>
+                </p>
+                <p class="subtitle is-6 article-subtitle">
+                  <a href="#">
+                    @laenas
+                  </a>
+                  on 2021-02-03
+                </p>
+              </div>
+              <div class="content article-body">
+                <h2 id="type-safety-is-difficult-or-at-least-irritating">Type Safety is difficult (or at least irritating)</h2>
+<p>One of the challenges in moving to a language like F#, especially when your point of departure is a language like C#, is in coping with what seems to be a fixation on types.  Whereas in C# it is commonplace and idiomatic to cast types to and fro, up and down their inheritence trees, such practices are discouraged and made more difficult in F#.  While not uniquely the cause of confusion, being well-practiced in Object Oriented patterns appears to have a problematic effect when a developer approaches programming involving algebraic data types, especially sum types - such as Discriminated Unions in F#.  They provide an enormous boost to type safety - reducing our need to worry about the permutations on data state - but that does come at a cost of actually needing to ensure that safety exists.  It's a major stumbling block that I see again, and again, and again with F# novices, so let's take a slightly in-depth look at unions and how they can be used to solve familiar problems in different ways.</p>
+<h2 id="everything-old-is-new-again">Everything old is new again</h2>
+<p>F#'s discriminated unions are, despite their simple nature, an unbelievably powerful tool in modelling a domain, because it allows us to cleanly model the 'either-or' nature of much of our data.</p>
+<pre><code class="language-fs">type Hypothesis =
+    | True
+    | False
+</code></pre>
+<p>Here, we can see how we can immediately constrain a <code>Hypothesis</code> to being either true or false.  Immediately, we can see that this could also be modelled as a <code>bool</code> - which is true.  OO-savvy readers will additionally notice that this looks a lot like an <code>enum</code> - and that is also true.  But hang on, it gets better:</p>
+<pre><code class="language-fs">type Hypothesis =
+    | True of Proof
+    | False of CounterExample
+</code></pre>
+<p>We can define the cases with different data!  In our example, we can acknowledge that a <code>True</code> <code>Hypothesis</code> consists of a <code>Proof</code> and a <code>False</code> <code>Hypothesis</code> consists of a <code>CounterExample</code>.</p>
+<p>We should really stop to think for a moment about what this means, especially if we're used to Object Oriented type hierarchies.</p>
+<h2 id="unions-as-alternative-inheritence">Unions as alternative inheritence</h2>
+<p>Spend almost any time modelling a domain in an object-oriented fashion and you'll end up with examples of that leaky abstraction, or that hanging method, due to inheritence.  At which point we go back to the drawing board and consider <em>long and hard</em> how to restructure things to ensure that we don't accidentally call the wrong method at the wrong time.  We end up thinking about everything, not necessarily in terms of their own types - but of their base types, as well as their child types.  What data properties should be <code>private</code> or <code>protected</code> or <code>public</code> - what is <code>virtual</code> or perhaps <code>abstract</code>?</p>
+<p>Unions allow us to gracefully sidestep these issues of trying to keep track of what data bleeds to where in a class hierarchy.  Each case defines its own data.  Consider for a moment the parallels, in an ideal world:  In C#, we often use inheritence as a means to pass child instances with different types by handling them as a shared ancestor class.  <code>Apple</code> and <code>Orange</code> both inherit from <code>Fruit</code>.  But with unions, we say clearly:  A <code>Fruit</code> is either an <code>Apple</code> or an <code>Orange</code> - and there is nothing else.</p>
+<p>While this initially seems constraining, to understand how it actually simplifies and solidifies our domain requires us to look a little more at the usage of unions.</p>
+<h2 id="cases-types">Cases != Types</h2>
+<p>Consider the following definition:</p>
+<pre><code class="language-fs">type Fruit =
+    | Apple
+    | Orange
+</code></pre>
+<p>Here, we have defined <strong>one</strong> type.  It's important to understand that.  Neither <code>Apple</code> nor <code>Orange</code> are types.  An extremely common mistake made by novices is to attempt to use unions as a form of shorthand for describing inheritence trees:</p>
+<pre><code class="language-fs">let core (apple:Apple) = //&quot;The type 'Apple' is not defined.&quot;
+</code></pre>
+<p>We can't write a function that only handles Apples because, as the compiler tells us, <code>Apple</code> is not a defined type.  This confusion is often magnified when using a union with cases named after other types (often records):</p>
+<pre><code class="language-fs">type Apple = {Type: string; Cored: bool}
+type Orange = {Type: string}
+type Fruit =
+    | Apple of Apple
+    | Orange of Orange
+
+let core (apple:Apple) =
+    {apple with Cored = true}
+
+let myFruit = Apple {Type = &quot;Ambrosia&quot;; Cored = false}
+
+core myFruit 
+(* This expression was expected to have type
+    'Apple'    
+but here has type
+    'Fruit' *)
+</code></pre>
+<p>In this instance, <code>core</code> takes an <code>Apple</code>(the type) but we give it a <code>Fruit</code> (of case <code>Apple</code>), and the compiler throws an error.  And without understanding the critical difference between the case and the type, even the function signature of <code>core</code> (<code>Apple -&gt; Apple</code>) doesn't immediately help us.  We've given it an Apple!  What more does it want!?</p>
+<h2 id="unions-are-not-just-glorified-enums">Unions are not just glorified Enums</h2>
+<p>One common pattern seems to follow developers with experience with other languages:</p>
+<pre><code class="language-fs">type FruitType = 
+    | Apple
+    | Orange
+
+type Fruit = {Type: FruitType}
+</code></pre>
+<p>Which seems logical, in isolation:  We <em>want</em> a Fruit as a record type, which looks and feels familiar like a class - and then we just use the union to indicate which type of Fruit any given instance is.</p>
+<p>The problem here is that in - I would estimate - the majority of cases we've sacrified everything to be in this state:</p>
+<p>If we want to do anything meaningful with the distinction between types of Fruit, we now end up needing even more pattern matching code - either by dotting into <code>Fruit</code> or by writing helpers to identify types for us: <code>if IsApple someFruit then //..</code>.  Both being ultimately redundant, since they're just hiding the union matching.
+We lose in the complex case as well:  Since we now have to be very careful about how we extend our <code>Fruit</code> type - all common traits must be shared across all <code>Fruit</code> types, and we introduce the need to do very careful error handling to track states.  Apples have Cores, Oranges have rinds, Cherries have pits (shared with Peaches, let us not forget), and so forth.</p>
+<h2 id="a-remedy-worse-than-the-ailment">A remedy worse than the ailment?</h2>
+<p>It's at about this point the realization dawns:  In order to work with <code>Fruit</code> in the abstract - we have to pattern match it to do anything meaningful with it.</p>
+<pre><code class="language-fs">//For the sake of this example, we're not going to attach data
+type Fruit = 
+    | Apple
+    | Orange
+
+let prepare fruit =
+    match fruit with
+    | Apple -&gt; //core it
+    | Orange -&gt; //peel it
+
+let juice fruit =
+    match fruit with
+    | Apple  -&gt; //This example just gave me a twenty minute long distraction
+    | Orange -&gt; //Into researching how to make apple juice at home
+</code></pre>
+<p>And so on.  It's understandable that after some amount of this repetition, something starts to feel like it needs be reduced.  But it's important to note that we're playing by slightly different rules here - because of the earlier point:  this is an alternative to type hierarchies.  So whereas in that traditional inherited model, we'd hide away our differing behavior inside the child classes themselves, with unions it stands at the forefront and we gain compiler support to ensure that we always handle all our cases.</p>
+<h2 id="the-prestige">The Prestige</h2>
+<p>So with a lot of boilerplate out of the way, here's the real why and how of the power of unions - we just need to move our example to something a little more involved:</p>
+<pre><code class="language-fs">//Let's imagine we're writing a game and want to model equipment that benefits a character
+type Equipment =
+    | Base of name: string * wisdomStat: int
+    | Prefixed of equipment: Equipment * wisdomBonus: int * prefix: string
+</code></pre>
+<p>Do you see it?  Yes?  No?  Let's pull that trick one more time.</p>
+<pre><code class="language-fs">type Equipment =
+    | Base of name: string * wisdomStat: int
+    | Prefixed of equipment: Equipment * wisdomBonus: int * prefix: string
+    | Suffixed of equipment: Equipment * wisdomBonus: int * suffix: string
+</code></pre>
+<p>The power comes from that most terrifying <em>r</em>-word:  <em>recursion</em>.  Deep breath, it's alright, let's just reason about this for a moment!<br />
+In this example we'll see that there is (and must be, as with all recursion) our base case:  <code>Base</code> - which specifically <strong>does not</strong> include other <code>Equipment</code>.  The other two cases do, however, and if we think about how we'd go about creating those cases, we can work from a position of pure logic:  In order to create a <code>Prefixed</code> we need to have some other <code>Equipment</code>...if we have some other <code>Prefixed</code> then...we're back where we started.  And if we have <code>Suffixed</code> then we end up with a similar problem.  But I can create <code>Prefixed</code> <code>Equipment</code> by passing some form of <code>Base</code> in, and that's that:</p>
+<pre><code class="language-fs">let heroicSocks = Prefixed(Base(&quot;Socks&quot;,0),3,&quot;Heroic&quot;)
+//Heroic Socks (+3 Wisdom)
+</code></pre>
+<p>And to step back to that logic, we can make <code>Suffixed</code> equipment in the same way.  Even better, we can do both, and in either order!</p>
+<pre><code class="language-fs">let heroicSocksOfBar = Prefixed(Suffixed(Base(&quot;Socks&quot;,0),2, &quot;of Bar&quot;),3,&quot;Heroic&quot;)
+let heroicSocksOfFoo = Suffixed(Prefixed(Base(&quot;Socks&quot;,0),3, &quot;Heroic&quot;),2,&quot;of Foo&quot;)
+</code></pre>
+<p>And note that nothing here stops us from continuing onwards: <code>Fancy Oversized Blue Socks of Astonishment and Woe</code> is just a matter of stacking <code>Prefixed</code> and <code>Suffixed</code> cases on top of one another, using the same, simple, elegant pattern.<br />
+It's not to say this is impossible to handle without unions - just more complex, or difficult to work with.  Consider how you'd model this behavior with a class hierarchy.  Trying to subclass <code>PrefixedEquipment : Equipment</code> makes standalone <code>SuffixedEquipment : Equipment</code> an exclusive choice.  Adding <code>IPrefixedEquipment</code> interfaces demands handling those interfaces and types separately from the <code>ISuffixedEquipment</code>.  Perhaps even an <code>IAugmentedEquipment</code> - and then writing complicated (and leaky) logic to indicate whether a given implementation is a suffix or a prefix.</p>
+<p>Even moreso, consider how you'd model this, even in F#, but without that recursive union.  It's not impossible, just not as clean and - importantly - typesafe through-and-through.  And not just now, but as easily as we can add more enhancements in the same way, beyond just the scope of a name and stat calculation:  <code>| Scripted of equipment: Equipment * behavior: (EquipmentEvent -&gt; Equipment)</code> - by adding a case that contains a function that returns equipment given some known type - we can end up with ad-hoc behavior.  And even better, just as with the name, we can do this <em>repeatedly</em> so that individual snippets of behavior can be just that - small snippet functions - rather than a single enormous function with complicated logic to handle all possible cases.</p>
+<h2 id="whats-the-cost-wheres-the-struggle-just-more-types">What's the cost?  Where's the struggle?  Just more types.</h2>
+<p>So we can have these nested recursive unions, but unwrapping them and processing all of those layers every time I just want to know 'what is the name of this item' is annoying - even if we have a helper function.  Entirely true!  But by simply creating more types to suit those needs, we can retain both the flexibility we have and also augment it with simpler handling:</p>
+<pre><code class="language-fs">type Equipment =
+    | Base of name: string * wisdomStat: int
+    | Prefixed of equipment: Equipment * wisdomBonus: int * prefix: string
+
+type Practical = {Name: string; WisdomBonus: int; RawEquipment: Equipment}
+
+let makePractical e =
+    let rec build equip (pName,pWis)= 
+        match equip with
+        | Base (name,wis) -&gt; 
+            ($&quot;%s{pName}%s{name}&quot;,wis + pWis)
+        | Prefixed (eq,wis,prefix) -&gt; 
+            build eq ($&quot;%s{prefix} %s{pName}&quot;, wis + pWis)
+
+    let (name,wis) = build e (&quot;&quot;,0)
+
+    {Name = name; WisdomBonus = wis; RawEquipment = e}
+
+let heroicSocks = Prefixed(Base(&quot;Socks&quot;,0),3,&quot;Heroic&quot;)
+
+let practicalSocks = makePractical heroicSocks
+</code></pre>
+<p>We hold that reference to our raw stats, both so that we can augment and modify and recalculate on the fly:</p>
+<pre><code class="language-fs">let cursedSocks = Prefixed(practicalSocks.RawEquipment, -5, &quot;Cursed&quot;) |&gt; makePractical
+</code></pre>
+<p>I leave, knowingly, <a href="https://twitter.com/MattAndersonNYT/status/772002757222002688">the sequencing of these augmentations</a> as an exercise for the reader.</p>
+<h2 id="in-conclusion">In conclusion</h2>
+<p>What can in addition be said, relative to what stands above?  We've looked at how unions aren't just enums.  We've built up the need to do complicated pattern matching by using unions - but then also reduced them back to simply handled, but strictly typesafe, records again.  We've seen how they can take what would normally be a complicated, interwoven jumble of interfaces and inherited types, and distill them down to simple, high-level abstractions.  We've talked about fruit and socks.</p>
+<p>And, hopefully, we've learned something.</p>
+
+              </div>
+            </div>
+          </div>
+          <div class="card article">
+            <div class="card-content">
+              <div class="media-content has-text-centered">
+                <p class="title article-title">
+                  <a href="/posts/01-fs-primer.html">
+                    An F# Primer for curious C# developers.
+                  </a>
+                </p>
+                <p class="subtitle is-6 article-subtitle">
+                  <a href="#">
+                    @laenas
+                  </a>
+                  on 2020-12-19
+                </p>
+              </div>
+              <div class="content article-body">
+                <h2 id="foreword">Foreword:</h2>
+<p>My adoption of F# as a language-of-choice was slightly rocky.  After around a decade of nearly exclusive C# work, my curiosity was piqued with an uptick in hearing about this other #-lang.  My initial reaction was one I've since seen in other C# developers - dismissal - C# is a good language and I was comfortable with it so why bother with the effort of learning a different one?  But the curiosity remained - and at least a few times I decided I'd set aside an evening to go through a basic introduction post and try to write some katas in F#.  It didn't stick because I just felt lost and couldn't translate my experience with C# into feeling even remotely comfortable with F#.  Easy enough to drop the curly braces, a little bit of a hiccup to remember to <code>let</code> instead of <code>var</code> - but how to <em>do</em> what I wanted?</p>
+<p>I didn't realize it then, but what I was observing is, I think, a potential gap in the way that F# developers talk about, describe, and introduce their language to the outside world.  There's a thorough library of materials about all the features and functionality of F#: Algebraic Data Types, Exhaustive Matching, Type Inference, the works.  There's a lot of articles handling how to solve a wide range of problems with F#.  But what's missing is, I think, something like what follows here:  Some guideposts about how to take what you are already comfortable with in C# and translate them into F#.  So, I wonder if we can't close that gap somewhat.</p>
+<p>Doing so expects just a little bit from the reader - a passing familiarity with three main points of F# syntax:  <code>let</code> is used like <code>var</code> in C# - to declare a variable.  <code>|&gt;</code> is F#'s piping operator, which takes the left side and uses it as the final argument to the right side.  F# uses lowercase and a tick for generic type annotations, so <code>SomeType&lt;T&gt;</code> is represented as <code>SomeType&lt;'a&gt;</code>.</p>
+<p>The rest should be understandable from usage and context as we go.  This isn't meant to be a comprehensive, no stone left unturned, guide - but enough information to cover most initial questions and get people off on the right foot.  A primer, if you will.</p>
+<h1 id="table-of-contents">Table of Contents</h1>
+<p><a href="#i-need-to">I need to:</a></p>
+<ul>
+<li><a href="#work-with-collections">Work with collections</a>
+<ul>
+<li><a href="#choose-a-collection-type">Choose a collection type</a>
+<ul>
+<li><a href="#something-like-arrayt">Something like <code>Array&lt;T&gt;</code></a></li>
+<li><a href="#something-like-listt">Something like <code>List&lt;T&gt;</code></a></li>
+<li><a href="#something-like-dictionarytkeytvalue">Something like <code>Dictionary&lt;TKey,TValue&gt;</code></a></li>
+</ul>
+</li>
+<li><a href="#choose-a-function">Choose a function</a>
+<ul>
+<li><a href="#i-just-want-my-linq">I just want my LINQ</a></li>
+<li><a href="#im-not-sure-which-function-i-need.i-have">I'm not sure which function I need. I have</a>
+<ul>
+<li><a href="#a-collection-and-want">A collection, and want:</a>
+<ul>
+<li><a href="#a-single-value-or-element">A single value or element:</a></li>
+<li><a href="#an-equal-number-of-elements">An equal number of elements:</a></li>
+<li><a href="#a-possibly-smaller-number-of-elements">A possibly smaller number of elements:</a></li>
+<li><a href="#a-possibly-greater-number-of-elements">A possibly greater number of elements:</a></li>
+<li><a href="#to-change-the-shape-of-the-collection">To change the shape of the collection:</a></li>
+<li><a href="#to-iterate-it-without-changing-it">To iterate it without changing it:</a></li>
+</ul>
+</li>
+<li><a href="#a-single-value-and-want">A single value, and want:</a>
+<ul>
+<li><a href="#it-to-be-part-of-a-collection">It to be part of a collection:</a></li>
+</ul>
+</li>
+<li><a href="#multiple-collections-and-want">Multiple collections, and want:</a>
+<ul>
+<li><a href="#to-combine-them">To combine them:</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a href="#work-asynchronously">Work Asynchronously</a></li>
+<li><a href="#signal-an-error-or-control-the-program-flow">Signal an error or control the program flow</a></li>
+<li><a href="#use-a-c-library-in-f">Use a C# library in F#</a></li>
+</ul>
+<h1 id="i-need-to">I need to:</h1>
+<h2 id="work-with-collections">Work with collections</h2>
+<p>F#'s core collection types (mostly) tend to look a lot like C#'s, but often with (sometimes subtle) behavioral differences to enforce immutability.  In most cases, functions that operate on these collections will return references and will not modify the original reference's contents.</p>
+<h2 id="choose-a-collection-type">Choose a collection type</h2>
+<h3 id="something-like-arrayt">Something like <code>Array&lt;T&gt;</code></h3>
+<p>You're in luck!  Arrays in F# are the same as Arrays in C#.  A few points to be made, however:</p>
+<ol>
+<li>Arrays in F# generally use the <code>[|element|]</code> notation - because <code>[]</code> is the notation for F# Lists.</li>
+<li>Separating collection elements in F# involves a semicolon, rather than a comma: <code>[|elementA;elementB|]</code></li>
+<li>Accessing by index in F# requires a prefixed dot before the braces:</li>
+</ol>
+<pre><code class="language-fs">let myArray = [|1;2;3|]
+myArray.[1] //2
+</code></pre>
+<ol start="4">
+<li>F# also offers multidimensional arrays of up to 4 dimensions, through the <code>Array2&lt;'a&gt;</code>, <code>Array3&lt;'a&gt;</code>, and <code>Array4&lt;'a&gt;</code> types.</li>
+</ol>
+<h3 id="something-like-listt">Something like <code>List&lt;T&gt;</code></h3>
+<p>The default list type in F# is slightly different than the <code>List&lt;T&gt;</code> type in C#.</p>
+<p>Here's what you need to know:</p>
+<ol>
+<li>Lists in F# generally use the <code>[element]</code> notation instead of arrays.</li>
+<li>Lists, just like arrays, separate elements with semicolons instead of commas: <code>[elementA;elementB]</code></li>
+<li>F# Lists are implemeneted as singly-linked lists - which means that appending individual elements is at the front of the list with the <code>::</code> operator:</li>
+</ol>
+<pre><code class="language-fs">let myList = [1;2;3]
+4 :: myList //[4;1;2;3]
+</code></pre>
+<ol start="5">
+<li>If we need to append at the end, we can use the `@ operator to join two lists:</li>
+</ol>
+<pre><code class="language-fs">let listA = [1;2]
+let listB = [3;4]
+listA @ listB //[1;2;3;4]
+</code></pre>
+<h3 id="something-like-dictionarytkeytvalue">Something like <code>Dictionary&lt;TKey,TValue&gt;</code></h3>
+<p>Along with the looks-similar-but-isn't motif of <code>list</code> - F# provides a default <code>Map&lt;'key,'value&gt;</code> type that isn't C#'s native <code>Dictionary&lt;TKey,TValue&gt;</code>, but does implement the usual group of .NET interfaces such as <code>IDictionary&lt;TKey,TValue&gt;</code> and <code>IEnumerable&lt;T&gt;</code></p>
+<p>Here's what you need to know:</p>
+<ol>
+<li>Maps can be created from any collection of 2-item tuples, where the first item is the key and the second is the value:</li>
+</ol>
+<pre><code class="language-fs">[(1,2);(3,4)] |&gt; Map.ofList //[1] = 2, [3] = 4
+</code></pre>
+<ol start="2">
+<li>If there are duplicates when we create from a sequence like this, the last value for a given key is what the Map contains:</li>
+</ol>
+<pre><code class="language-fs">[(1,2);(1,3)] |&gt; Map.ofList |&gt; Map.find 1 = 3 //true
+</code></pre>
+<ol start="3">
+<li>The reverse process is also true: Maps can be easily turned into collections of 2-item tuples:</li>
+</ol>
+<pre><code class="language-fs">[(1,2);(3,4)] |&gt; Map.ofList |&gt; Map.toList //[(1,2);(3,4)]
+</code></pre>
+<ol start="4">
+<li>F#'s native <code>Map</code> type isn't especially well suited to consumption by C#, in cases of interop, we can create a more C#-friendly <code>IDictionary</code> by utilizing the <code>dict</code> function with any collection of 2-item tuples.  But do note, this is still an immutable structure, and will throw an exception on attempts to add elements to it.</li>
+</ol>
+<pre><code class="language-fs">[(1,2);(3,4)] |&gt; dict
+</code></pre>
+<h2 id="choose-a-function">Choose a function</h2>
+<p>One important distinction between F# and C# when it comes to working with Collections is that in C# you tend to operate <em>on</em> an instance of a collection - by dotting into methods on that type; while F# prefers to offer families of functions in modules that take instances as an argument.  So C#'s <code>myDictionary.Add(someKey,someValue)</code> in F# would be <code>Map.add someKey someValue myMap</code>.</p>
+<h3 id="i-just-want-my-linq">I just want my LINQ</h3>
+<p>F# offers functions that are analogous to those that C# programmers will be familiar with from LINQ, but the names are often different, as F# uses nomenclature that is more in alignment with the terminology used in the rest of the functional programming world.  Rest assured, they mostly behave as you would expect.  Rather than be exhaustive - LINQ is huge - I'll list what in my experience are the most common LINQ methods and their F# analogues:</p>
+<ul>
+<li><code>.Aggregate()</code> is called <code>.fold</code> or <code>.reduce</code> depending on whether or not you're providing an initial state or just using the first element, respectively.</li>
+<li><code>.Select()</code> is called <code>.map</code></li>
+<li><code>.SelectMany()</code> is called <code>.collect</code></li>
+<li><code>.Where()</code> is called <code>.where</code> or <code>.filter</code> (same thing, two names, long story)</li>
+<li><code>.All()</code> is called <code>.forall</code></li>
+<li><code>.Any()</code> is called <code>.exists</code> if we are supplying a predicate, or <code>.isEmpty</code> if we just want to know if the collection has any elements</li>
+<li><code>.Distinct()</code> is still <code>.distinct</code> - or <code>.distinctBy</code> if we are supplying a projection function.</li>
+<li><code>.GroupBy()</code> is still <code>.groupBy</code></li>
+<li><code>.Min()</code> and <code>.Max()</code> are still <code>.min</code> and <code>.max</code> - with <code>.minBy</code> and <code>.maxBy</code> alternatives for using a projection.</li>
+<li><code>.OrderBy()</code> is called <code>.sortBy</code> - and similarly, <code>.OrderByDescending()</code> is <code>.sortbyDescending</code></li>
+<li><code>.Reverse()</code> is called <code>.rev</code></li>
+<li><code>.First()</code> is called <code>.head</code> if we want the first element - or <code>.find</code> if we want the first element that matches a predicate.  Similarly, instead of <code>.FirstOrDefault()</code> we use <code>.tryHead</code> and <code>.tryFind</code> - which will return an Option of either <code>Some matchingValue</code> or <code>None</code> if not found, instead of throwing an exception.</li>
+<li><code>.Single()</code> is called <code>.exactlyOne</code> - and similarly, <code>.SingleOrDefault()</code> is <code>.tryExactlyOne</code></li>
+</ul>
+<h3 id="im-not-sure-which-function-i-need.i-have">I'm not sure which function I need. I have</h3>
+<ul>
+<li><h4 id="a-collection-and-want">A collection, and want:</h4>
+<ul>
+<li><h5 id="a-single-value-or-element">A single value or element:</h5>
+<ul>
+<li><code>.min</code>, <code>.minBy</code>, <code>.max</code>, and <code>.maxBy</code> will get an element of your collection relative to the others</li>
+<li><code>.sum</code>, <code>.sumBy</code>, <code>.average</code>, <code>.averageBy</code>,</li>
+<li><code>.find</code>, <code>.tryFind</code>, <code>.pick</code>, and <code>.tryPick</code> will allow you to get a single specific element of your collection</li>
+<li><code>.head</code>, <code>.tryHead</code>, <code>.last</code>, and <code>.tryLast</code> will get you items from the front or back of your collection</li>
+<li><code>.fold</code> and <code>.reduce</code> will allow you to apply logic and use every element of your collection to create a single value</li>
+<li><code>.foldBack</code> and <code>.reduceBack</code> do the same, but from the end of the collection</li>
+</ul>
+</li>
+<li><h5 id="an-equal-number-of-elements">An equal number of elements:</h5>
+<ul>
+<li><code>.map</code> will allow you to transform each element of your collection.</li>
+<li><code>.indexed</code> will turn each element of your collection into a tuple, whose first item is its index: <code>[1]</code> would become <code>[(0,1)]</code>, for example.</li>
+<li><code>.mapi</code> does this implicitly, by providing the index as an additional first argument to the mapping function.</li>
+<li><code>.sort</code>, <code>.sortDescending</code>, <code>sortBy</code>, and <code>.sortByDescending</code> allow you to change the order of your collection.</li>
+</ul>
+</li>
+<li><h5 id="a-possibly-smaller-number-of-elements">A possibly smaller number of elements:</h5>
+<ul>
+<li><code>.filter</code> will give you back a collection only containing elements that match the predicate provided.</li>
+<li><code>.choose</code> is like <code>.filter</code> - but allows you to map the elements at the same time.</li>
+<li><code>.skip</code> will return the remaining elements after ignoring the first <code>n</code></li>
+<li><code>.take</code> and <code>.truncate</code> will return up to the first <code>n</code> items and either throw or not, respectively.</li>
+<li><code>.distinct</code> and <code>distinctBy</code> will allow you to remove duplicates from the collection</li>
+</ul>
+</li>
+<li><h5 id="a-possibly-greater-number-of-elements">A possibly greater number of elements:</h5>
+<ul>
+<li><code>.collect</code> will apply a collection-generating function to each element of your collection, and concatenate all the results together.</li>
+</ul>
+</li>
+<li><h5 id="to-change-the-shape-of-the-collection">To change the shape of the collection:</h5>
+<ul>
+<li><code>.windowed</code> will return a new collection of all <code>n</code> sized groups from the original collection: <code>[1;2,3]</code> would become <code>[[1;2];[2;3]]</code> when <code>n = 2</code>, for example.</li>
+<li><code>.groupBy</code> will return a new collection of tuples, where the first item is the projection key, and the second is a collection of starting elements that matched the projection: <code>[1;2;3]</code> projected by <code>(fun i -&gt; i % 2)</code> would result in <code>[(0, [2]); (1, [1; 3])]</code>, for example.</li>
+<li><code>.chunkBySize</code> will return a new collection of up to <code>n</code> sized collections of your original.  <code>[1;2;3]</code> would become <code>[[1;2];[3]]</code> when <code>n = 2</code>, for example.</li>
+<li><code>.splitInto</code> will return a new collection containing <code>n</code> equally sized collections from your original.  <code>[1;2;3]</code> would become <code>[[1];[2];[3]]</code> when <code>n = 3</code>, for example.</li>
+</ul>
+</li>
+<li><h5 id="to-iterate-it-without-changing-it">To iterate it without changing it:</h5>
+<ul>
+<li><code>.iter</code> and <code>.iteri</code> take a function and apply each element of your collection to it, but not return any value.</li>
+</ul>
+</li>
+</ul>
+</li>
+<li><h4 id="a-single-value-and-want">A single value, and want:</h4>
+<ul>
+<li><h5 id="it-to-be-part-of-a-collection">It to be part of a collection:</h5>
+<ul>
+<li><code>.singleton</code> can be used to create a one-item collection from the value</li>
+<li><code>.init</code> will take a size and an initializer function and create a new collection of that size.</li>
+</ul>
+</li>
+</ul>
+</li>
+<li><h4 id="multiple-collections-and-want">Multiple collections, and want:</h4>
+<ul>
+<li><h5 id="to-combine-them">To combine them:</h5>
+<ul>
+<li><code>.append</code> takes two collections and creates a new single collection containing all the elements of both.</li>
+<li><code>.concat</code> does the same but for a collection of collections.</li>
+<li><code>.map2</code> and <code>.fold2</code> act like <code>map</code> and <code>fold</code> from above, but will provide items from the same index in two source collections to the mapping/folding function.</li>
+<li><code>.allPairs</code> takes two collections and provides all 2-item permutations between both.</li>
+<li><code>.zip</code> and <code>.zip3</code> take 2(or 3) collections and produce a single collection consisting of tuples of items from the same index in the sources.</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<h2 id="work-asynchronously">Work Asynchronously</h2>
+<p>F#'s asynchronicity model resembles C#'s but has a few important differences that will occasionally catch out C# developers:</p>
+<ol>
+<li>F# has a separate <code>Async&lt;'t&gt;</code> type that is similar to C#'s <code>Task&lt;T&gt;</code></li>
+<li>Due to F#'s type system requiring returns, it uses <code>Async&lt;unit&gt;</code> instead of <code>Task</code> for cases where we don't return an actual value</li>
+<li>F# can generate and consume <code>Task&lt;T&gt;</code> with the <code>Async.StartAsTask</code> and <code>Async.AwaitTask</code> functions from the core library.</li>
+</ol>
+<p>F# has one other very notable difference from C# with regards to asynchronous code:  C# 'enables' the <code>await</code> keyword inside a method by applying the <code>async</code> keyword to that method's signature;  F# uses a language feature called a <code>computation expression</code> - which results in the <code>async</code> being part of the function body instead.  This also comes with some implications for how you write the code inside that function body:</p>
+<pre><code class="language-fs">let timesTwo i = i * 2 // We have our basic function definition
+
+//And now we can make it async
+
+let timesTwoAsync i = async { //Note that when working with computation expressions, we start with our keyword, and then the function itself inside curly braces
+    return i * 2 //We also use the `return` keyword to end the expression
+}
+
+let timesFour i = async {
+    let! doubleOnce = timesTwoAsync i //Note the ! in our let! - this is like `await` in C# - the function we call on the right side has to be something that returns an Async&lt;'a&gt;
+    //After we have bound the result of an Async function with let! - we can use it afterwards just like normal
+    let doubleTwice = timesTwo doubleOnce //In the case of non-Async functions, we can write our code like usual
+
+    return doubleTwice
+}
+</code></pre>
+<ol start="4">
+<li>Keep in mind that <code>let!</code> in Async blocks only work when calling Async-producing functions - similar to how C#'s <code>await</code> can only be used on <code>Task</code> returning methods.</li>
+<li>Differently, however, is that since F# handles async purely in the body of functions - there's no requirement about which functions you can <code>let!</code> bind - anything returning <code>Async&lt;'a&gt;</code> is acceptable.  This is in contrast to C#'s requirement that you can only <code>await</code> methods flagged as <code>async</code></li>
+</ol>
+<h2 id="signal-an-error-or-control-the-program-flow">Signal an error or control the program flow</h2>
+<p>First, a definition:  When we talk about error signalling and program flow, I don't mean exceptions - F# has those and they work very similarly to C#.   What I mean is predictable and potentially recoverable errors;  because this is an area where F# can seem like C# at a glance, but very quickly it becomes apparent how different it is.  Specifically, this turns up in the use of <code>null</code> as a common error signal in C#.  It isn't an uncommon pattern in C# that looks something like this:</p>
+<pre><code class="language-cs">public Foo DoSomething(Bar bar)
+{
+    if(bar.IsInvalid)
+    {
+        return null;
+    }
+
+    return new Foo(bar.Value);
+}
+</code></pre>
+<p>And then, the caller of <code>DoSomething</code> can check the return for <code>null</code> and if so, does something similar to either handle it or pass it on.  One area where this pops up often, in my experience, is around LINQ's <code>FirstOrDefault()</code> - which gets used to avoid the exception in the case of an empty <code>IEnumerable&lt;T&gt;</code> - but often ends up just propagating the <code>null</code>.</p>
+<p>F# initially appears to offer a translation of this with its <code>Option&lt;'a&gt;</code> type - and the question tends to arise: isn't <code>None</code> just a shortcut for <code>null</code> except now it's more difficult to get at the value, now wrapped in <code>Some</code>?  Because that's going to require pattern matching or checking <code>.HasValue</code> on the option - and is that really better?  It isn't, and that's why F# by way of functional programming offers a cleaner solution:  writing the majority of your code without worrying about checking for existing errors, and instead only worrying about signalling potential new ones specific to a given function.  We can do this by writing most of our functions as though the inputs have already been validated for us, and then by using the <code>map</code> or <code>bind</code> functions to chain our happy-path functions together.  Let's look at these in the context of <code>Option</code>:</p>
+<p><code>map</code> wants two arguments:  a <code>'a -&gt; 'b</code> function, and an <code>Option&lt;'a&gt;</code>, from which it will produce an <code>Option&lt;'b&gt;</code><br />
+<code>bind</code> also wants two arguments:  a <code>'a -&gt; Option&lt;'b&gt;</code> function, and an <code>Option&lt;'a&gt;</code>, from which it will produce an <code>Option&lt;'b&gt;</code></p>
+<p>Let's consider what these can do for us:</p>
+<pre><code class="language-fs">// string -&gt; Option&lt;string&gt;
+let getConfigVariable varName =
+    Private.configFile
+    |&gt; Map.tryFind varName
+
+// string -&gt; Option&lt;string[]&gt;
+let readFile filename = 
+    if File.Exists(filename) 
+        then Some File.ReadLines(filename)
+        else None
+
+// string[] -&gt; int
+let countLines textRows = Seq.length file
+
+getConfigVariable &quot;storageFile&quot;                 // 1
+|&gt; Option.bind readFile                         // 2
+|&gt; Option.map countLines                        // 3
+</code></pre>
+<p>So what's going on there?</p>
+<ol>
+<li>We try to grab a variable from our configuration.  Maybe it exists, maybe it doesn't, but it only matters to that single function.</li>
+<li>Then we pipe into <code>Option.bind</code> - which implicitly handles the safety logic for us:  if the previous step has <code>Some</code> value - use it as an argument to this function - otherwise keep it as <code>None</code> and move on</li>
+<li><code>Option.map</code> does the same - if there is <code>Some</code> value, use it with this function, otherwise just move on.</li>
+</ol>
+<p>The astute observer here will notice that there doesn't appear to be an immediate difference between <code>bind</code> and <code>map</code> at step 3 - they're both just automatically handling the same thing, right?  But note the different signatures between <code>readFile</code> and <code>countLines</code> - <code>bind</code> has an additional step that <code>flatten</code>s the <code>Option</code> that its function outputs.  Consider the alternative:  If we had used <code>map</code> then at the end of line 2 we would have an <code>Option&lt;Option&lt;string[]&gt;&gt;</code> - and so on line 3 we would need to <code>Option.map (Option.map countLines)</code>!</p>
+<p>But, the question stands, how do I actually get the value, if there is one, <em>out</em> of that <code>Option</code>?  And it's a fair question.  And the answer is to avoid doing so as long as possible.  Because the later you wait to try to unwrap an Option, the less code you have to write that has any idea an error is even possible.  And at a point when you finally, absolutely, need to get a value out - you have two options:<br />
+<code>Option.defaultValue</code> takes an <code>'a</code> and an <code>Option&lt;'a&gt;</code> - if the <code>Option</code> has a value, it returns that, otherwise it returns the <code>'a</code> you've given it.<br />
+<code>Option.defaultWith</code> is the same, but instead of a value, it takes a <code>unit -&gt; 'a</code> function to generate a value.</p>
+<p>Coincidentally, this same logic applies with F#'s built-in <code>Result&lt;'a,'b&gt;</code> type, which also offers <code>bind</code> and <code>map</code> (and <code>mapError</code> if you need it) - but instead of <code>None</code> you have the <code>Error</code> case, which you can use to store information about what went wrong - be it a <code>string</code> or a custom error type of your choosing.</p>
+<h2 id="use-a-c-library-in-f">Use a C# library in F#</h2>
+<p>One of the great benefits to F# - and probably why a C# developer looks at it first rather than something like Haskell - is that it is part of the greater .NET ecosystem and supports interop with all of the C# libraries that a developer is already familiar with.  C# code can (mostly) be consumed by F# - but some rough edges tend to crop up, but generally with easy workarounds:</p>
+<ul>
+<li>When calling C# methods, the F# compiler treats the method as a single-argument tuple.  Because of this, partial application is strictly not available and piping can be difficult due to overload resolution:</li>
+</ul>
+<pre><code class="language-fs">&quot;1&quot; |&gt; Int32.Parse                          //Works like Int32.Parse(&quot;1&quot;)
+(&quot;1&quot;, NumberStyles.Integer) |&gt; Int32.Parse  //Works like Int32.Parse(&quot;1&quot;, NumberStyles.Integer)
+NumberStyles.Integer |&gt; Int32.Parse &quot;1&quot;     //Won't compile, because it's expecting a tupled argument, not two separate args.
+</code></pre>
+<ul>
+<li><p>C# libraries - specifically those that involve serialization or reflection - are often not equipped for understanding native F# types.  The most common case here is JSON libraries - who can struggle with serialization and/or deserialization of Unions and Records - it's strongly advisable in cases such as this to check for an extension library that provides F# specific functionality.  <code>Newtonsoft.Json</code> has the <code>Newtonsoft.Json.FSharp</code> package, for example - <code>System.Text.Json</code> has <code>FSharp.SystemTextJson</code> - alternately these cases may also make for a good time to check out the native F# libraries for the same work, like <code>Thoth</code> or <code>Chiron</code>.</p>
+</li>
+<li><p>Owing to C#'s ability to produce <code>null</code>s for any reference type - and no (at time of writing) native interop for C#'s nullable <code>?</code> type notation for reference types - it's helpful to try to isolate C# code on the outside edge of your logic, and use helpers such as <code>Option.ofNullable</code> (for Nullable<T>) or <code>Option.ofObj</code> (for reference types) to quickly provide type safety for your own code.</p>
+</li>
+<li><p>C# methods that expect delegate types such as <code>Action&lt;T&gt;</code> or <code>Func&lt;T&gt;</code> can be given an F# lambda of the appropriate signature, and the compiler will handle the conversion.  Remember:  <code>unit</code> fills in for <code>void</code> in F# - and its value is <code>()</code> - so an <code>Action&lt;T&gt;</code> would expect a <code>'T -&gt; unit</code>, such as <code>(fun _ -&gt; printfn &quot;I'm a lambda!&quot;)</code>; and likewise, <code>Func&lt;T&gt;</code> would expect a <code>unit -&gt; 'T</code>, such as <code>(fun () -&gt; 123)</code>.</p>
+</li>
+<li><p>In cases where a C# library expects things to be decorated with Attributes, they can be used almost identically with the tricky catch that F# uses <code>&lt;&gt;</code> inside the square brackets - so <code>[Serializable]</code> in C# would become <code>[&lt;Serializable&gt;]</code> in F#.  Arguments work the same:  <code>[&lt;DllImport(&quot;user32.dll&quot;, CharSet = CharSet.Auto)&gt;]</code>.  And, just like with collections above, multiple attributes are separated with a semicolon, not a comma:  <code>[&lt;AttributeOne; AttributeTwo&gt;]</code>, for example.</p>
+</li>
+</ul>
+
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </body>
+</html>

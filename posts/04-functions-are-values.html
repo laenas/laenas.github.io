@@ -1,0 +1,183 @@
+<html>
+  <head>
+    <meta charSet="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <title>
+      Functions.  Just functions. - Arrows born in flight
+    </title>
+    <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon.png"/>
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/font-awesome/4.7.0/css/font-awesome.min.css"/>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Open+Sans"/>
+    <link rel="stylesheet" href="https://unpkg.com/bulma@0.8.0/css/bulma.min.css"/>
+    <link rel="stylesheet" href="https://unpkg.com/bulma-prefers-dark"/>
+    <link rel="stylesheet" href="/style/vs2015.css"/>
+    <link rel="stylesheet" type="text/css" href="/style/style.css"/>
+    <script src="/js/highlight.pack.js"></script>
+    <script type="text/javascript">
+      hljs.initHighlightingOnLoad();
+    </script>
+  </head>
+  <body>
+    <section class="hero is-info is-medium is-bold">
+      <div class="hero-body">
+        <div class="container has-text-centered">
+          <h1 class="title">
+            Musings on code
+          </h1>
+        </div>
+      </div>
+    </section>
+    <div class="container">
+      <section class="articles">
+        <div class="column is-10 is-offset-1">
+          <div class="card article">
+            <div class="card-content">
+              <div class="media-content has-text-centered">
+                <p class="title article-title">
+                  <a href="/posts/04-functions-are-values.html">
+                    Functions.  Just functions.
+                  </a>
+                </p>
+                <p class="subtitle is-6 article-subtitle">
+                  <a href="#">
+                    @laenas
+                  </a>
+                  on 2021-03-20
+                </p>
+              </div>
+              <div class="content article-body">
+                <h2 id="three-words">Three words</h2>
+<p>If there's one thing, one rule, that I hope to get across in this pile of words, it's that <em><strong>functions are values</strong></em>.</p>
+<p>Functions.
+Are.
+Values.</p>
+<p>These three words are a key principle that unlock a door to a different way of solving problems, an important and significant step in solving problems and writing simpler, more functional code.  But there often seems to be a divide between being able to strictly read this - which everyone gets;  the ability to use it when presented with an API expecting it - something I think most developers these days do, even if they don't realize it;  and the ability to <em>wield</em> the idea to design our own code with this concept in mind.  The pause appears to occur most severely on that latter step - as though standing on the bridge over the chasm has given pause and a wondering which side is closer.  Let's help cross that bridge, as to better add another tool to our bags.</p>
+<h2 id="a-value-or-a-name">A value or a name</h2>
+<p>What do we mean when we say 'functions are values'?  Let's attack this as specifically as possible, and ensure that we've defined our terms.<br />
+First:  <code>values</code>.  Every developer understands values, as they're so critical to our work that to need to define or think about it, is like trying to be conscious about the act of breathing.</p>
+<pre><code class="language-fs">let x = 3
+let y = &quot;foo&quot;
+let z = [9;8;7]
+</code></pre>
+<p>Here, we have some values.  <code>x</code> is an <code>int</code> with a value of <code>3</code>.  And so on.  <strong>Left hand side is a name, right hand side is the value.</strong></p>
+<p>These also mean that there is referential equivalence between using the name and the value itself.  In the above, anywhere I can use the raw value <code>3</code>, I can now use <code>x</code> and achieve the same result.</p>
+<p>Then: <code>functions</code>.  Every developer understands functions, they're also fundamental to our work, regardless of language or paradigm.  They allow us to name and capture a subset of our code in such a way that we can both split up our program textually, but also reuse parts of the code from multiple places.  Functions have <em>one</em> defining characteristic:  They take some values as arguments and produce some other value as a result.</p>
+<pre><code class="language-fs">let double x = x * 2
+let add x y = x + y
+</code></pre>
+<p>We have a few arithmatic functions:  <code>double</code> takes a single argument and multiplies it by two.  <code>add</code> takes two arguments and sums them.  We're all perfectly familiar with this:  functions taking values and producing values.</p>
+<h2 id="left-hand-side-name">Left hand side: name.</h2>
+<p>We're all used to declaring functions.  We're all used to calling them.  And in what seems to be most language these days, we're even comfortable using them as arguments:</p>
+<pre><code class="language-fs">[1;2;3]
+|&gt; List.map (fun i -&gt; i * 2) //[2;4;6]
+</code></pre>
+<p>This sort of lambda syntax comes naturally once you've used it for even short while.  I just have to provide a little transformation function and it'll call it with each thing in my list.  Sure, this makes sense.</p>
+<p>But here's the question:  If functions are defined because they take values and produce other values, and <code>List.map</code> is a function, then what are the <strong>values</strong> that we give it as arguments?  Definitely our list of <code>[1;2;3]</code> sure - but...also that lambda.</p>
+<p>Let's rewrite the above, slightly:</p>
+<pre><code class="language-fs">let double x = x * 2
+
+[1;2;3]
+|&gt; List.map double
+</code></pre>
+<p>See it?</p>
+<h2 id="right-hand-side-value">Right hand side: value.</h2>
+<p>A quick recap of points.<br />
+Values can be given a name: <code>let x = 3</code><br />
+And afterwards, we can use either the basic value or the name interchangeably: <code>double x</code> and <code>double 3</code> will both produce the same result.<br />
+Functions take values as arguments to produce new values: <code>let double x = x * 2</code></p>
+<p>And now, with <code>List.map</code> as our go-to example function, we've seen that the mapping function we use can be passed in as either a lambda, or a previously declared and named function.  Repeated with emphasis:  It can be passed in as either <em>a lambda</em>  or <em>a named function</em>.  A value or a name.</p>
+<h2 id="now-the-weeds">Now, the weeds</h2>
+<p>Let's look at the same simple function, but written three separate ways:</p>
+<pre><code class="language-fs">let add x y = x + y
+
+let add x = (fun y -&gt; x + y)
+
+let add = (fun x y -&gt; x + y)
+</code></pre>
+<p>These are all conceptually equivalent - and all can be called identically: <code>add 1 2</code> will produce <code>3</code>.  But it's worth it to pause for a moment and consider the three forms:</p>
+<p>Everyone is familiar with the first form - we declare the name, we name the parameters, and we do something with them.  It's the baseline way of working with functions[1]</p>
+<p>The second form is one that we tend to see while learning F# - oftentimes in examples involving partial application.  But it's here that we also may start feeling a fog set in:  Because we tend to learn, by default, that functions have to return <em>solid</em> things, <em>values</em>, something - for lack of a better word - tangible.  We're used to the concept of something like <code>add</code> giving us a number back.  So there's something a little weird and alien at the idea that this...thing...isn't a number, it's a function.  But it's also here where we probably have that lightbulb moment, at least in part, that 'ok, cool, so I can make lambdas and return them so that they can be called!'.  But that's like learning to walk, without learning to run.</p>
+<p>The third form, and I want to be perfectly crystal clear I sincerely don't advocate for writing functions in this way, I do so solely to unify some examples.  But here we have something that looks more like what we see in all non-function cases in the language - a name on the left, a value on the right.  It lays bare the fact that our function <em>is</em> just 'a lambda' with a name.  Equivalency, the same as <code>let x = 3</code>.</p>
+<h2 id="put-to-good-use">Put to good use</h2>
+<p>While this is trivial - in the case of <code>add</code> - or familiar to a point of acceptance, in the case of <code>List.map</code> - there's something more powerful lurking here that deserves a little bit more attention.  It's the power to dramatically shift the overall flow of an application without needing to dramatically alter the primary flow path of the code.</p>
+<p>Consider an example:  We have an application that will search an <code>InputDir</code> for files with <code>ExtensionSuffix</code> and we'll output whatever work we're doing to some <code>OutputDir</code>.  We also have some defaults.</p>
+<pre><code class="language-fs">type AppConfig = {
+    InputDir: string
+    ExtensionSuffix: string
+    OutputDir: string
+}
+
+let defaultConfig = {
+    InputDir = &quot;./search&quot;
+    ExtensionSuffix = &quot;.log&quot;
+    OutputDir = &quot;./results&quot;
+}
+</code></pre>
+<p>But we want to allow users to override these settings using some form of runtime config.  For the sake of brevity, we'll ignore <em>where</em> this configuration comes from, as well as <em>how</em> it gets parsed.  But we'll assume that what we have to work with is something in the form of:</p>
+<pre><code class="language-fs">type ConfigOption =
+    | InputDir of string
+    | ExtensionSuffix of string
+    | OutputDir of string
+</code></pre>
+<p>And we'll assume these are parsed into a list.</p>
+<p>Now, the first way newcomers to FP will tend to approach such a problem has the air of other languages to it - especially those without first-class functions:</p>
+<pre><code class="language-fs">let configureApp (options: ConfigOption list) =
+    let config = defaultConfig
+
+    let inputDir =
+        options
+        |&gt; List.tryFind (fun opt -&gt; 
+            match opt with
+            | InputDir _ -&gt; true
+            | _ -&gt; false)
+
+    let config = 
+        if Option.isSome inputDir then
+            {config with InputDir = Option.get inputDir}
+        else
+            config
+
+    //Snip - you get the picture    
+</code></pre>
+<p>Do note, none of the above is 'real' code, it's just an off-the-cuff amalgamation of the sort of things that seem to come up rather repeatedly.  And somewhere around here, the question rightfully tends to come up as well: &quot;How can I easily test which case a union type is?&quot;  (Which is generally a smell in its own right.)  As well as having to deal better with the Option that's caused by dealing safely with the list, branching in general - it's painful.  I earnestly think it is likely to push some people away - because in this sense, something like C# <em>looks</em> cleaner - you aren't <em>forced</em> to <code>else</code> the <code>if</code> and can use null-coalescing with LINQ to avoid the Option.  And those feelings will also make us potentially lean towards trying to model all our individual options as their own types - and write helper functions for them - but then we start to recognize the duplication of logic down that road as well.  But what about if we take what we've learned about functions and apply it here, what can we do?</p>
+<pre><code class="language-fs">let configureApp (options: ConfigOption list) =
+    options
+    |&gt; List.map (fun opt -&gt;
+        match opt with
+        | InputDir dir -&gt; (fun cfg -&gt; {cfg with InputDir = dir})
+        | ExtensionSuffix ext -&gt; (fun cfg -&gt; {cfg with ExtensionSuffix = ext})
+        | OutputDir dir -&gt; (fun cfg -&gt; {cfg with OutputDir = dir}))
+    |&gt; List.fold (|&gt;) defaultConfig
+</code></pre>
+<p>What's going on here?  The major difference here is in the recognition of three key details:  First is that our options - conceptually, not in code - just want to update the config;  thinking about this in F#, pretending to write that function itself, we can notice how the shape <code>AppConfig -&gt; AppConfig</code> just feels natural.  Take a config, return an altered config.  Second is that what we're trying to do:  take an <code>AppConfig</code>(our default), apply it to our first function, then take that function's output and apply it to the second, and so forth.  That's pipelining - but since we can't know at compile-time which functions to call we can't just <em>write</em> a pipeline, so we need a way to create a 'dynamic' pipeline.  The third and final piece of the puzzle, that ties the whole thing together, is that <em>functions are values</em> - as we saw above - and so it's possible in the first place to have something like an <code>(AppConfig -&gt; AppConfig) list</code> - a list of <em>functions</em>.  So we have a list of functions that by signature compose themselves, we just need a starting point, and some way to combine them sequentially - and that sure sounds pretty much spot-on for <code>List.fold</code>, doesn't it?</p>
+<p>So we take our list of options.  We transform each one into a function that updates a config - keep in mind that they don't have to be lambdas:  they can be named functions.  It's entirely the same!  But now that we have a list of functions that update a config, we fold them over our default config.  Admittedly, using the <code>|&gt;</code> operator in such a way is a flourish, but it conceptually pairs better with that previous realization that what we want <em>is</em> to pipeline.  We could have used an explicit folder function as well:</p>
+<pre><code class="language-fs">//snip
+|&gt; List.fold (fun cfg optF -&gt; optF cfg) defaultConfig
+</code></pre>
+<p>When people say that F# is a terse language, and packs a lot of power per LOC relative to C#, this is the sort of thing that seems to be the case.  Yes - C# is shorter and nicer when we compare direct, naive solutions - but when you lean into the power of the language, F# starts to be shorter, more expressive, and still somehow more typesafe - the union means we know that all config options get checked, and not needing to do an equivalent of <code>tryFind</code> to figure out if an option exists means we can just directly map whatever we do have and work with it.  And while you can achieve a similar behavior in C# with <code>Func&lt;TConfig,TConfig&gt;</code> and LINQ's <code>Aggregate</code>, both of those will result in much less comprehensible code - to say nothing about the trouble in trying to model the options themselves without a union.</p>
+<h2 id="in-summary">In summary</h2>
+<p>Functions are values and behave similarly to all other values we use in the language.
+The left hand side of a <code>let</code> is a name (and some parameter names, for functions) - and the right hand side is the value (and what we do with those params, for functions)
+This goes from ints to lists to classes to functions.  And in cases where we can deal with more primitive types, we can also have function types themselves:</p>
+<pre><code class="language-fs">//Record fields (though Interfaces can be recommended)
+type FuncRecord = {F: int -&gt; int}
+
+//Union cases
+type FuncUnion = FuncUnion of (int -&gt; int)
+
+//Type argument to generic types
+type FuncList = (int -&gt; int) list
+
+//Tuple members
+type FuncTuple = (int * (int -&gt; int))
+</code></pre>
+<p>And in the same way that we're all familiar that things like LINQ's <code>Select</code> (F#'s <code>map</code>) is more expressive than writing a full <code>foreach</code> or list expression to do the same work - we can also use that same elegance, that same power, in our own code outside the BCL itself.  Because whether they come from the BCL, or our own code, functions are just values.  So let's use them as such!</p>
+
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </body>
+</html>

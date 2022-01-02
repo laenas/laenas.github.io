@@ -1,0 +1,354 @@
+<html>
+  <head>
+    <meta charSet="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <title>
+      An F# Primer for curious C# developers. - Arrows born in flight
+    </title>
+    <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon.png"/>
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/font-awesome/4.7.0/css/font-awesome.min.css"/>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Open+Sans"/>
+    <link rel="stylesheet" href="https://unpkg.com/bulma@0.8.0/css/bulma.min.css"/>
+    <link rel="stylesheet" href="https://unpkg.com/bulma-prefers-dark"/>
+    <link rel="stylesheet" href="/style/vs2015.css"/>
+    <link rel="stylesheet" type="text/css" href="/style/style.css"/>
+    <script src="/js/highlight.pack.js"></script>
+    <script type="text/javascript">
+      hljs.initHighlightingOnLoad();
+    </script>
+  </head>
+  <body>
+    <section class="hero is-info is-medium is-bold">
+      <div class="hero-body">
+        <div class="container has-text-centered">
+          <h1 class="title">
+            Musings on code
+          </h1>
+        </div>
+      </div>
+    </section>
+    <div class="container">
+      <section class="articles">
+        <div class="column is-10 is-offset-1">
+          <div class="card article">
+            <div class="card-content">
+              <div class="media-content has-text-centered">
+                <p class="title article-title">
+                  <a href="/posts/01-fs-primer.html">
+                    An F# Primer for curious C# developers.
+                  </a>
+                </p>
+                <p class="subtitle is-6 article-subtitle">
+                  <a href="#">
+                    @laenas
+                  </a>
+                  on 2020-12-19
+                </p>
+              </div>
+              <div class="content article-body">
+                <h2 id="foreword">Foreword:</h2>
+<p>My adoption of F# as a language-of-choice was slightly rocky.  After around a decade of nearly exclusive C# work, my curiosity was piqued with an uptick in hearing about this other #-lang.  My initial reaction was one I've since seen in other C# developers - dismissal - C# is a good language and I was comfortable with it so why bother with the effort of learning a different one?  But the curiosity remained - and at least a few times I decided I'd set aside an evening to go through a basic introduction post and try to write some katas in F#.  It didn't stick because I just felt lost and couldn't translate my experience with C# into feeling even remotely comfortable with F#.  Easy enough to drop the curly braces, a little bit of a hiccup to remember to <code>let</code> instead of <code>var</code> - but how to <em>do</em> what I wanted?</p>
+<p>I didn't realize it then, but what I was observing is, I think, a potential gap in the way that F# developers talk about, describe, and introduce their language to the outside world.  There's a thorough library of materials about all the features and functionality of F#: Algebraic Data Types, Exhaustive Matching, Type Inference, the works.  There's a lot of articles handling how to solve a wide range of problems with F#.  But what's missing is, I think, something like what follows here:  Some guideposts about how to take what you are already comfortable with in C# and translate them into F#.  So, I wonder if we can't close that gap somewhat.</p>
+<p>Doing so expects just a little bit from the reader - a passing familiarity with three main points of F# syntax:  <code>let</code> is used like <code>var</code> in C# - to declare a variable.  <code>|&gt;</code> is F#'s piping operator, which takes the left side and uses it as the final argument to the right side.  F# uses lowercase and a tick for generic type annotations, so <code>SomeType&lt;T&gt;</code> is represented as <code>SomeType&lt;'a&gt;</code>.</p>
+<p>The rest should be understandable from usage and context as we go.  This isn't meant to be a comprehensive, no stone left unturned, guide - but enough information to cover most initial questions and get people off on the right foot.  A primer, if you will.</p>
+<h1 id="table-of-contents">Table of Contents</h1>
+<p><a href="#i-need-to">I need to:</a></p>
+<ul>
+<li><a href="#work-with-collections">Work with collections</a>
+<ul>
+<li><a href="#choose-a-collection-type">Choose a collection type</a>
+<ul>
+<li><a href="#something-like-arrayt">Something like <code>Array&lt;T&gt;</code></a></li>
+<li><a href="#something-like-listt">Something like <code>List&lt;T&gt;</code></a></li>
+<li><a href="#something-like-dictionarytkeytvalue">Something like <code>Dictionary&lt;TKey,TValue&gt;</code></a></li>
+</ul>
+</li>
+<li><a href="#choose-a-function">Choose a function</a>
+<ul>
+<li><a href="#i-just-want-my-linq">I just want my LINQ</a></li>
+<li><a href="#im-not-sure-which-function-i-need.i-have">I'm not sure which function I need. I have</a>
+<ul>
+<li><a href="#a-collection-and-want">A collection, and want:</a>
+<ul>
+<li><a href="#a-single-value-or-element">A single value or element:</a></li>
+<li><a href="#an-equal-number-of-elements">An equal number of elements:</a></li>
+<li><a href="#a-possibly-smaller-number-of-elements">A possibly smaller number of elements:</a></li>
+<li><a href="#a-possibly-greater-number-of-elements">A possibly greater number of elements:</a></li>
+<li><a href="#to-change-the-shape-of-the-collection">To change the shape of the collection:</a></li>
+<li><a href="#to-iterate-it-without-changing-it">To iterate it without changing it:</a></li>
+</ul>
+</li>
+<li><a href="#a-single-value-and-want">A single value, and want:</a>
+<ul>
+<li><a href="#it-to-be-part-of-a-collection">It to be part of a collection:</a></li>
+</ul>
+</li>
+<li><a href="#multiple-collections-and-want">Multiple collections, and want:</a>
+<ul>
+<li><a href="#to-combine-them">To combine them:</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a href="#work-asynchronously">Work Asynchronously</a></li>
+<li><a href="#signal-an-error-or-control-the-program-flow">Signal an error or control the program flow</a></li>
+<li><a href="#use-a-c-library-in-f">Use a C# library in F#</a></li>
+</ul>
+<h1 id="i-need-to">I need to:</h1>
+<h2 id="work-with-collections">Work with collections</h2>
+<p>F#'s core collection types (mostly) tend to look a lot like C#'s, but often with (sometimes subtle) behavioral differences to enforce immutability.  In most cases, functions that operate on these collections will return references and will not modify the original reference's contents.</p>
+<h2 id="choose-a-collection-type">Choose a collection type</h2>
+<h3 id="something-like-arrayt">Something like <code>Array&lt;T&gt;</code></h3>
+<p>You're in luck!  Arrays in F# are the same as Arrays in C#.  A few points to be made, however:</p>
+<ol>
+<li>Arrays in F# generally use the <code>[|element|]</code> notation - because <code>[]</code> is the notation for F# Lists.</li>
+<li>Separating collection elements in F# involves a semicolon, rather than a comma: <code>[|elementA;elementB|]</code></li>
+<li>Accessing by index in F# requires a prefixed dot before the braces:</li>
+</ol>
+<pre><code class="language-fs">let myArray = [|1;2;3|]
+myArray.[1] //2
+</code></pre>
+<ol start="4">
+<li>F# also offers multidimensional arrays of up to 4 dimensions, through the <code>Array2&lt;'a&gt;</code>, <code>Array3&lt;'a&gt;</code>, and <code>Array4&lt;'a&gt;</code> types.</li>
+</ol>
+<h3 id="something-like-listt">Something like <code>List&lt;T&gt;</code></h3>
+<p>The default list type in F# is slightly different than the <code>List&lt;T&gt;</code> type in C#.</p>
+<p>Here's what you need to know:</p>
+<ol>
+<li>Lists in F# generally use the <code>[element]</code> notation instead of arrays.</li>
+<li>Lists, just like arrays, separate elements with semicolons instead of commas: <code>[elementA;elementB]</code></li>
+<li>F# Lists are implemeneted as singly-linked lists - which means that appending individual elements is at the front of the list with the <code>::</code> operator:</li>
+</ol>
+<pre><code class="language-fs">let myList = [1;2;3]
+4 :: myList //[4;1;2;3]
+</code></pre>
+<ol start="5">
+<li>If we need to append at the end, we can use the `@ operator to join two lists:</li>
+</ol>
+<pre><code class="language-fs">let listA = [1;2]
+let listB = [3;4]
+listA @ listB //[1;2;3;4]
+</code></pre>
+<h3 id="something-like-dictionarytkeytvalue">Something like <code>Dictionary&lt;TKey,TValue&gt;</code></h3>
+<p>Along with the looks-similar-but-isn't motif of <code>list</code> - F# provides a default <code>Map&lt;'key,'value&gt;</code> type that isn't C#'s native <code>Dictionary&lt;TKey,TValue&gt;</code>, but does implement the usual group of .NET interfaces such as <code>IDictionary&lt;TKey,TValue&gt;</code> and <code>IEnumerable&lt;T&gt;</code></p>
+<p>Here's what you need to know:</p>
+<ol>
+<li>Maps can be created from any collection of 2-item tuples, where the first item is the key and the second is the value:</li>
+</ol>
+<pre><code class="language-fs">[(1,2);(3,4)] |&gt; Map.ofList //[1] = 2, [3] = 4
+</code></pre>
+<ol start="2">
+<li>If there are duplicates when we create from a sequence like this, the last value for a given key is what the Map contains:</li>
+</ol>
+<pre><code class="language-fs">[(1,2);(1,3)] |&gt; Map.ofList |&gt; Map.find 1 = 3 //true
+</code></pre>
+<ol start="3">
+<li>The reverse process is also true: Maps can be easily turned into collections of 2-item tuples:</li>
+</ol>
+<pre><code class="language-fs">[(1,2);(3,4)] |&gt; Map.ofList |&gt; Map.toList //[(1,2);(3,4)]
+</code></pre>
+<ol start="4">
+<li>F#'s native <code>Map</code> type isn't especially well suited to consumption by C#, in cases of interop, we can create a more C#-friendly <code>IDictionary</code> by utilizing the <code>dict</code> function with any collection of 2-item tuples.  But do note, this is still an immutable structure, and will throw an exception on attempts to add elements to it.</li>
+</ol>
+<pre><code class="language-fs">[(1,2);(3,4)] |&gt; dict
+</code></pre>
+<h2 id="choose-a-function">Choose a function</h2>
+<p>One important distinction between F# and C# when it comes to working with Collections is that in C# you tend to operate <em>on</em> an instance of a collection - by dotting into methods on that type; while F# prefers to offer families of functions in modules that take instances as an argument.  So C#'s <code>myDictionary.Add(someKey,someValue)</code> in F# would be <code>Map.add someKey someValue myMap</code>.</p>
+<h3 id="i-just-want-my-linq">I just want my LINQ</h3>
+<p>F# offers functions that are analogous to those that C# programmers will be familiar with from LINQ, but the names are often different, as F# uses nomenclature that is more in alignment with the terminology used in the rest of the functional programming world.  Rest assured, they mostly behave as you would expect.  Rather than be exhaustive - LINQ is huge - I'll list what in my experience are the most common LINQ methods and their F# analogues:</p>
+<ul>
+<li><code>.Aggregate()</code> is called <code>.fold</code> or <code>.reduce</code> depending on whether or not you're providing an initial state or just using the first element, respectively.</li>
+<li><code>.Select()</code> is called <code>.map</code></li>
+<li><code>.SelectMany()</code> is called <code>.collect</code></li>
+<li><code>.Where()</code> is called <code>.where</code> or <code>.filter</code> (same thing, two names, long story)</li>
+<li><code>.All()</code> is called <code>.forall</code></li>
+<li><code>.Any()</code> is called <code>.exists</code> if we are supplying a predicate, or <code>.isEmpty</code> if we just want to know if the collection has any elements</li>
+<li><code>.Distinct()</code> is still <code>.distinct</code> - or <code>.distinctBy</code> if we are supplying a projection function.</li>
+<li><code>.GroupBy()</code> is still <code>.groupBy</code></li>
+<li><code>.Min()</code> and <code>.Max()</code> are still <code>.min</code> and <code>.max</code> - with <code>.minBy</code> and <code>.maxBy</code> alternatives for using a projection.</li>
+<li><code>.OrderBy()</code> is called <code>.sortBy</code> - and similarly, <code>.OrderByDescending()</code> is <code>.sortbyDescending</code></li>
+<li><code>.Reverse()</code> is called <code>.rev</code></li>
+<li><code>.First()</code> is called <code>.head</code> if we want the first element - or <code>.find</code> if we want the first element that matches a predicate.  Similarly, instead of <code>.FirstOrDefault()</code> we use <code>.tryHead</code> and <code>.tryFind</code> - which will return an Option of either <code>Some matchingValue</code> or <code>None</code> if not found, instead of throwing an exception.</li>
+<li><code>.Single()</code> is called <code>.exactlyOne</code> - and similarly, <code>.SingleOrDefault()</code> is <code>.tryExactlyOne</code></li>
+</ul>
+<h3 id="im-not-sure-which-function-i-need.i-have">I'm not sure which function I need. I have</h3>
+<ul>
+<li><h4 id="a-collection-and-want">A collection, and want:</h4>
+<ul>
+<li><h5 id="a-single-value-or-element">A single value or element:</h5>
+<ul>
+<li><code>.min</code>, <code>.minBy</code>, <code>.max</code>, and <code>.maxBy</code> will get an element of your collection relative to the others</li>
+<li><code>.sum</code>, <code>.sumBy</code>, <code>.average</code>, <code>.averageBy</code>,</li>
+<li><code>.find</code>, <code>.tryFind</code>, <code>.pick</code>, and <code>.tryPick</code> will allow you to get a single specific element of your collection</li>
+<li><code>.head</code>, <code>.tryHead</code>, <code>.last</code>, and <code>.tryLast</code> will get you items from the front or back of your collection</li>
+<li><code>.fold</code> and <code>.reduce</code> will allow you to apply logic and use every element of your collection to create a single value</li>
+<li><code>.foldBack</code> and <code>.reduceBack</code> do the same, but from the end of the collection</li>
+</ul>
+</li>
+<li><h5 id="an-equal-number-of-elements">An equal number of elements:</h5>
+<ul>
+<li><code>.map</code> will allow you to transform each element of your collection.</li>
+<li><code>.indexed</code> will turn each element of your collection into a tuple, whose first item is its index: <code>[1]</code> would become <code>[(0,1)]</code>, for example.</li>
+<li><code>.mapi</code> does this implicitly, by providing the index as an additional first argument to the mapping function.</li>
+<li><code>.sort</code>, <code>.sortDescending</code>, <code>sortBy</code>, and <code>.sortByDescending</code> allow you to change the order of your collection.</li>
+</ul>
+</li>
+<li><h5 id="a-possibly-smaller-number-of-elements">A possibly smaller number of elements:</h5>
+<ul>
+<li><code>.filter</code> will give you back a collection only containing elements that match the predicate provided.</li>
+<li><code>.choose</code> is like <code>.filter</code> - but allows you to map the elements at the same time.</li>
+<li><code>.skip</code> will return the remaining elements after ignoring the first <code>n</code></li>
+<li><code>.take</code> and <code>.truncate</code> will return up to the first <code>n</code> items and either throw or not, respectively.</li>
+<li><code>.distinct</code> and <code>distinctBy</code> will allow you to remove duplicates from the collection</li>
+</ul>
+</li>
+<li><h5 id="a-possibly-greater-number-of-elements">A possibly greater number of elements:</h5>
+<ul>
+<li><code>.collect</code> will apply a collection-generating function to each element of your collection, and concatenate all the results together.</li>
+</ul>
+</li>
+<li><h5 id="to-change-the-shape-of-the-collection">To change the shape of the collection:</h5>
+<ul>
+<li><code>.windowed</code> will return a new collection of all <code>n</code> sized groups from the original collection: <code>[1;2,3]</code> would become <code>[[1;2];[2;3]]</code> when <code>n = 2</code>, for example.</li>
+<li><code>.groupBy</code> will return a new collection of tuples, where the first item is the projection key, and the second is a collection of starting elements that matched the projection: <code>[1;2;3]</code> projected by <code>(fun i -&gt; i % 2)</code> would result in <code>[(0, [2]); (1, [1; 3])]</code>, for example.</li>
+<li><code>.chunkBySize</code> will return a new collection of up to <code>n</code> sized collections of your original.  <code>[1;2;3]</code> would become <code>[[1;2];[3]]</code> when <code>n = 2</code>, for example.</li>
+<li><code>.splitInto</code> will return a new collection containing <code>n</code> equally sized collections from your original.  <code>[1;2;3]</code> would become <code>[[1];[2];[3]]</code> when <code>n = 3</code>, for example.</li>
+</ul>
+</li>
+<li><h5 id="to-iterate-it-without-changing-it">To iterate it without changing it:</h5>
+<ul>
+<li><code>.iter</code> and <code>.iteri</code> take a function and apply each element of your collection to it, but not return any value.</li>
+</ul>
+</li>
+</ul>
+</li>
+<li><h4 id="a-single-value-and-want">A single value, and want:</h4>
+<ul>
+<li><h5 id="it-to-be-part-of-a-collection">It to be part of a collection:</h5>
+<ul>
+<li><code>.singleton</code> can be used to create a one-item collection from the value</li>
+<li><code>.init</code> will take a size and an initializer function and create a new collection of that size.</li>
+</ul>
+</li>
+</ul>
+</li>
+<li><h4 id="multiple-collections-and-want">Multiple collections, and want:</h4>
+<ul>
+<li><h5 id="to-combine-them">To combine them:</h5>
+<ul>
+<li><code>.append</code> takes two collections and creates a new single collection containing all the elements of both.</li>
+<li><code>.concat</code> does the same but for a collection of collections.</li>
+<li><code>.map2</code> and <code>.fold2</code> act like <code>map</code> and <code>fold</code> from above, but will provide items from the same index in two source collections to the mapping/folding function.</li>
+<li><code>.allPairs</code> takes two collections and provides all 2-item permutations between both.</li>
+<li><code>.zip</code> and <code>.zip3</code> take 2(or 3) collections and produce a single collection consisting of tuples of items from the same index in the sources.</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<h2 id="work-asynchronously">Work Asynchronously</h2>
+<p>F#'s asynchronicity model resembles C#'s but has a few important differences that will occasionally catch out C# developers:</p>
+<ol>
+<li>F# has a separate <code>Async&lt;'t&gt;</code> type that is similar to C#'s <code>Task&lt;T&gt;</code></li>
+<li>Due to F#'s type system requiring returns, it uses <code>Async&lt;unit&gt;</code> instead of <code>Task</code> for cases where we don't return an actual value</li>
+<li>F# can generate and consume <code>Task&lt;T&gt;</code> with the <code>Async.StartAsTask</code> and <code>Async.AwaitTask</code> functions from the core library.</li>
+</ol>
+<p>F# has one other very notable difference from C# with regards to asynchronous code:  C# 'enables' the <code>await</code> keyword inside a method by applying the <code>async</code> keyword to that method's signature;  F# uses a language feature called a <code>computation expression</code> - which results in the <code>async</code> being part of the function body instead.  This also comes with some implications for how you write the code inside that function body:</p>
+<pre><code class="language-fs">let timesTwo i = i * 2 // We have our basic function definition
+
+//And now we can make it async
+
+let timesTwoAsync i = async { //Note that when working with computation expressions, we start with our keyword, and then the function itself inside curly braces
+    return i * 2 //We also use the `return` keyword to end the expression
+}
+
+let timesFour i = async {
+    let! doubleOnce = timesTwoAsync i //Note the ! in our let! - this is like `await` in C# - the function we call on the right side has to be something that returns an Async&lt;'a&gt;
+    //After we have bound the result of an Async function with let! - we can use it afterwards just like normal
+    let doubleTwice = timesTwo doubleOnce //In the case of non-Async functions, we can write our code like usual
+
+    return doubleTwice
+}
+</code></pre>
+<ol start="4">
+<li>Keep in mind that <code>let!</code> in Async blocks only work when calling Async-producing functions - similar to how C#'s <code>await</code> can only be used on <code>Task</code> returning methods.</li>
+<li>Differently, however, is that since F# handles async purely in the body of functions - there's no requirement about which functions you can <code>let!</code> bind - anything returning <code>Async&lt;'a&gt;</code> is acceptable.  This is in contrast to C#'s requirement that you can only <code>await</code> methods flagged as <code>async</code></li>
+</ol>
+<h2 id="signal-an-error-or-control-the-program-flow">Signal an error or control the program flow</h2>
+<p>First, a definition:  When we talk about error signalling and program flow, I don't mean exceptions - F# has those and they work very similarly to C#.   What I mean is predictable and potentially recoverable errors;  because this is an area where F# can seem like C# at a glance, but very quickly it becomes apparent how different it is.  Specifically, this turns up in the use of <code>null</code> as a common error signal in C#.  It isn't an uncommon pattern in C# that looks something like this:</p>
+<pre><code class="language-cs">public Foo DoSomething(Bar bar)
+{
+    if(bar.IsInvalid)
+    {
+        return null;
+    }
+
+    return new Foo(bar.Value);
+}
+</code></pre>
+<p>And then, the caller of <code>DoSomething</code> can check the return for <code>null</code> and if so, does something similar to either handle it or pass it on.  One area where this pops up often, in my experience, is around LINQ's <code>FirstOrDefault()</code> - which gets used to avoid the exception in the case of an empty <code>IEnumerable&lt;T&gt;</code> - but often ends up just propagating the <code>null</code>.</p>
+<p>F# initially appears to offer a translation of this with its <code>Option&lt;'a&gt;</code> type - and the question tends to arise: isn't <code>None</code> just a shortcut for <code>null</code> except now it's more difficult to get at the value, now wrapped in <code>Some</code>?  Because that's going to require pattern matching or checking <code>.HasValue</code> on the option - and is that really better?  It isn't, and that's why F# by way of functional programming offers a cleaner solution:  writing the majority of your code without worrying about checking for existing errors, and instead only worrying about signalling potential new ones specific to a given function.  We can do this by writing most of our functions as though the inputs have already been validated for us, and then by using the <code>map</code> or <code>bind</code> functions to chain our happy-path functions together.  Let's look at these in the context of <code>Option</code>:</p>
+<p><code>map</code> wants two arguments:  a <code>'a -&gt; 'b</code> function, and an <code>Option&lt;'a&gt;</code>, from which it will produce an <code>Option&lt;'b&gt;</code><br />
+<code>bind</code> also wants two arguments:  a <code>'a -&gt; Option&lt;'b&gt;</code> function, and an <code>Option&lt;'a&gt;</code>, from which it will produce an <code>Option&lt;'b&gt;</code></p>
+<p>Let's consider what these can do for us:</p>
+<pre><code class="language-fs">// string -&gt; Option&lt;string&gt;
+let getConfigVariable varName =
+    Private.configFile
+    |&gt; Map.tryFind varName
+
+// string -&gt; Option&lt;string[]&gt;
+let readFile filename = 
+    if File.Exists(filename) 
+        then Some File.ReadLines(filename)
+        else None
+
+// string[] -&gt; int
+let countLines textRows = Seq.length file
+
+getConfigVariable &quot;storageFile&quot;                 // 1
+|&gt; Option.bind readFile                         // 2
+|&gt; Option.map countLines                        // 3
+</code></pre>
+<p>So what's going on there?</p>
+<ol>
+<li>We try to grab a variable from our configuration.  Maybe it exists, maybe it doesn't, but it only matters to that single function.</li>
+<li>Then we pipe into <code>Option.bind</code> - which implicitly handles the safety logic for us:  if the previous step has <code>Some</code> value - use it as an argument to this function - otherwise keep it as <code>None</code> and move on</li>
+<li><code>Option.map</code> does the same - if there is <code>Some</code> value, use it with this function, otherwise just move on.</li>
+</ol>
+<p>The astute observer here will notice that there doesn't appear to be an immediate difference between <code>bind</code> and <code>map</code> at step 3 - they're both just automatically handling the same thing, right?  But note the different signatures between <code>readFile</code> and <code>countLines</code> - <code>bind</code> has an additional step that <code>flatten</code>s the <code>Option</code> that its function outputs.  Consider the alternative:  If we had used <code>map</code> then at the end of line 2 we would have an <code>Option&lt;Option&lt;string[]&gt;&gt;</code> - and so on line 3 we would need to <code>Option.map (Option.map countLines)</code>!</p>
+<p>But, the question stands, how do I actually get the value, if there is one, <em>out</em> of that <code>Option</code>?  And it's a fair question.  And the answer is to avoid doing so as long as possible.  Because the later you wait to try to unwrap an Option, the less code you have to write that has any idea an error is even possible.  And at a point when you finally, absolutely, need to get a value out - you have two options:<br />
+<code>Option.defaultValue</code> takes an <code>'a</code> and an <code>Option&lt;'a&gt;</code> - if the <code>Option</code> has a value, it returns that, otherwise it returns the <code>'a</code> you've given it.<br />
+<code>Option.defaultWith</code> is the same, but instead of a value, it takes a <code>unit -&gt; 'a</code> function to generate a value.</p>
+<p>Coincidentally, this same logic applies with F#'s built-in <code>Result&lt;'a,'b&gt;</code> type, which also offers <code>bind</code> and <code>map</code> (and <code>mapError</code> if you need it) - but instead of <code>None</code> you have the <code>Error</code> case, which you can use to store information about what went wrong - be it a <code>string</code> or a custom error type of your choosing.</p>
+<h2 id="use-a-c-library-in-f">Use a C# library in F#</h2>
+<p>One of the great benefits to F# - and probably why a C# developer looks at it first rather than something like Haskell - is that it is part of the greater .NET ecosystem and supports interop with all of the C# libraries that a developer is already familiar with.  C# code can (mostly) be consumed by F# - but some rough edges tend to crop up, but generally with easy workarounds:</p>
+<ul>
+<li>When calling C# methods, the F# compiler treats the method as a single-argument tuple.  Because of this, partial application is strictly not available and piping can be difficult due to overload resolution:</li>
+</ul>
+<pre><code class="language-fs">&quot;1&quot; |&gt; Int32.Parse                          //Works like Int32.Parse(&quot;1&quot;)
+(&quot;1&quot;, NumberStyles.Integer) |&gt; Int32.Parse  //Works like Int32.Parse(&quot;1&quot;, NumberStyles.Integer)
+NumberStyles.Integer |&gt; Int32.Parse &quot;1&quot;     //Won't compile, because it's expecting a tupled argument, not two separate args.
+</code></pre>
+<ul>
+<li><p>C# libraries - specifically those that involve serialization or reflection - are often not equipped for understanding native F# types.  The most common case here is JSON libraries - who can struggle with serialization and/or deserialization of Unions and Records - it's strongly advisable in cases such as this to check for an extension library that provides F# specific functionality.  <code>Newtonsoft.Json</code> has the <code>Newtonsoft.Json.FSharp</code> package, for example - <code>System.Text.Json</code> has <code>FSharp.SystemTextJson</code> - alternately these cases may also make for a good time to check out the native F# libraries for the same work, like <code>Thoth</code> or <code>Chiron</code>.</p>
+</li>
+<li><p>Owing to C#'s ability to produce <code>null</code>s for any reference type - and no (at time of writing) native interop for C#'s nullable <code>?</code> type notation for reference types - it's helpful to try to isolate C# code on the outside edge of your logic, and use helpers such as <code>Option.ofNullable</code> (for Nullable<T>) or <code>Option.ofObj</code> (for reference types) to quickly provide type safety for your own code.</p>
+</li>
+<li><p>C# methods that expect delegate types such as <code>Action&lt;T&gt;</code> or <code>Func&lt;T&gt;</code> can be given an F# lambda of the appropriate signature, and the compiler will handle the conversion.  Remember:  <code>unit</code> fills in for <code>void</code> in F# - and its value is <code>()</code> - so an <code>Action&lt;T&gt;</code> would expect a <code>'T -&gt; unit</code>, such as <code>(fun _ -&gt; printfn &quot;I'm a lambda!&quot;)</code>; and likewise, <code>Func&lt;T&gt;</code> would expect a <code>unit -&gt; 'T</code>, such as <code>(fun () -&gt; 123)</code>.</p>
+</li>
+<li><p>In cases where a C# library expects things to be decorated with Attributes, they can be used almost identically with the tricky catch that F# uses <code>&lt;&gt;</code> inside the square brackets - so <code>[Serializable]</code> in C# would become <code>[&lt;Serializable&gt;]</code> in F#.  Arguments work the same:  <code>[&lt;DllImport(&quot;user32.dll&quot;, CharSet = CharSet.Auto)&gt;]</code>.  And, just like with collections above, multiple attributes are separated with a semicolon, not a comma:  <code>[&lt;AttributeOne; AttributeTwo&gt;]</code>, for example.</p>
+</li>
+</ul>
+
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </body>
+</html>

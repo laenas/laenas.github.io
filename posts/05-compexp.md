@@ -122,7 +122,7 @@ F# doesn't ship with one for `Option` - and from a practicality standpoint it se
 
 ## What makes it tick ##
 
-Computation Expressions are based on creating a type - generally called a `Builder` - that implements by convention (some combination)[https://docs.microsoft.com/en-us/dotnet/fsharp/language-reference/computation-expressions] of methods of specific known signatures.  And while that page may seem unassailable to begin with, we can demystify it by looking at our own use case and its implementation.  
+Computation Expressions are based on creating a type - generally called a `Builder` - that implements by convention [some combination](https://docs.microsoft.com/en-us/dotnet/fsharp/language-reference/computation-expressions) of methods of specific known signatures.  And while that page may seem unassailable to begin with, we can demystify it by looking at our own use case and its implementation.  
 
 The `let!` keyword, for example, requires a `Bind` method to be present, and in the table we can see it expects a signature of `M<'T> * ('T -> M<'U>) -> M<'U>` - and it initially looks frightening, just a soup of letters.  But we can quickly make sense of it by substituting in our specific example: `Option<'T> * ('T -> Option<'U>) -> Option<'U>` and that's much more understandable!  Indeed, while it's using tupled params, it's clearly just `Option.bind`!  
 
